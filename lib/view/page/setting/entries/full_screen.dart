@@ -6,7 +6,7 @@ extension _Fullscreen on _AppSettingsPageState {
       children: [
         _buildFullScreenSwitch(),
         _buildFullScreenJitter(),
-      ].map((e) => CardX(child: e)).toList(),
+      ],
     );
   }
 

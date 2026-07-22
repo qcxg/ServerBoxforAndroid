@@ -32,13 +32,31 @@ class ServerFuncBtns extends StatelessWidget {
   Widget build(BuildContext context) {
     final btns = this.btns;
     if (btns.isEmpty) return UIs.placeholder;
+    final move = Stores.setting.moveServerFuncs.fetch();
+
+    if (move) {
+      return SizedBox(
+        height: 27,
+        child: Row(
+          children: btns.map((value) {
+            return Expanded(
+              child: Center(
+                child: Consumer(
+                  builder: (_, ref, _) => _buildItem(context, value, ref),
+                ),
+              ),
+            );
+          }).toList(growable: false),
+        ),
+      );
+    }
 
     return SizedBox(
       height: 77,
       child: ListView.builder(
         itemCount: btns.length,
         scrollDirection: Axis.horizontal,
-        padding: EdgeInsets.symmetric(horizontal: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 13),
         itemBuilder: (context, index) {
           final value = btns[index];
           final item = Consumer(
@@ -55,10 +73,18 @@ extension ServerFuncBtnsBuild on ServerFuncBtns {
   Widget _buildItem(BuildContext context, ServerFuncBtn e, WidgetRef ref) {
     final move = Stores.setting.moveServerFuncs.fetch();
     if (move) {
-      return IconButton(
+      final scheme = Theme.of(context).colorScheme;
+      return IconButton.filledTonal(
         onPressed: () => _onTapMoreBtns(e, context, ref),
         padding: EdgeInsets.zero,
         tooltip: e.toStr,
+        style: IconButton.styleFrom(
+          fixedSize: const Size.square(26),
+          minimumSize: const Size.square(26),
+          maximumSize: const Size.square(26),
+          backgroundColor: scheme.surfaceContainerHighest.withAlpha(156),
+          foregroundColor: scheme.onSurfaceVariant,
+        ),
         icon: Icon(e.icon, size: 15),
       );
     }

@@ -1,21 +1,21 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:fl_lib/fl_lib.dart';
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:responsive_framework/responsive_framework.dart';
 import 'package:server_box/core/chan.dart';
 import 'package:server_box/core/sync.dart';
 import 'package:server_box/data/model/app/tab.dart';
 import 'package:server_box/data/provider/server/all.dart';
-import 'package:server_box/data/res/build_data.dart';
 import 'package:server_box/data/res/store.dart';
-import 'package:server_box/data/res/url.dart';
 import 'package:server_box/view/page/home_tab.dart';
 import 'package:server_box/view/page/macos_menu_bar.dart';
 import 'package:server_box/view/page/setting/entry.dart';
+import 'package:server_box/view/responsive_layout.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 class HomePage extends ConsumerStatefulWidget {
@@ -145,33 +145,50 @@ class _HomePageState extends ConsumerState<HomePage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final isMobile = ResponsiveBreakpoints.of(context).isMobile;
+    final width = MediaQuery.sizeOf(context).width;
+    final useBottomNavigation = AppLayout.useCompactNavigation(width);
     _syncFullscreenSystemUi();
 
-    final Widget mainContent = Scaffold(
-      appBar: _AppBar(MediaQuery.paddingOf(context).top),
-      body: Row(
-        children: [
-          if (!isMobile) _buildRailBar(),
-          Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: _tabs.length,
-              physics: const NeverScrollableScrollPhysics(),
-              itemBuilder: (_, index) => _tabs[index].page,
-              onPageChanged: (value) {
-                FocusScope.of(context).unfocus();
-                if (!_switchingPage) {
-                  _selectIndex.value = value;
-                  _restorableTabIndex.value = value;
-                }
-                _syncFullscreenSystemUi();
-              },
-            ),
+    final Widget mainContent = ListenableBuilder(
+      listenable: _selectIndex,
+      builder: (context, _) {
+        final selectedIndex = _selectIndex.value;
+        final serverUsesStatusGlass =
+            AppLayout.useStatusGlass(width) &&
+            selectedIndex >= 0 &&
+            selectedIndex < _tabs.length &&
+            _tabs[selectedIndex] == AppTab.server;
+        return Scaffold(
+          extendBody: isMobile,
+          extendBodyBehindAppBar: serverUsesStatusGlass,
+          appBar: _AppBar(
+            MediaQuery.paddingOf(context).top,
+            paintGlass: !serverUsesStatusGlass,
           ),
-        ],
-      ),
-      bottomNavigationBar: isMobile ? _buildBottomBar() : null,
+          body: Row(
+            children: [
+              if (!useBottomNavigation) _buildRailBar(),
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: _tabs.length,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemBuilder: (_, index) => _tabs[index].page,
+                  onPageChanged: (value) {
+                    FocusScope.of(context).unfocus();
+                    if (!_switchingPage) {
+                      _selectIndex.value = value;
+                      _restorableTabIndex.value = value;
+                    }
+                    _syncFullscreenSystemUi();
+                  },
+                ),
+              ),
+            ],
+          ),
+          bottomNavigationBar: useBottomNavigation ? _buildBottomBar() : null,
+        );
+      },
     );
 
     if (Platform.isMacOS) {
@@ -191,13 +208,10 @@ class _HomePageState extends ConsumerState<HomePage>
       listenable: _selectIndex,
       builder: (context, child) {
         if (_isServerFullscreenMode) return UIs.placeholder;
-        return NavigationBar(
+        return _FloatingHomeNavigation(
+          tabs: _tabs,
           selectedIndex: _selectIndex.value,
-          height: kBottomNavigationBarHeight * 1.1,
-          animationDuration: const Duration(milliseconds: 250),
           onDestinationSelected: _onDestinationSelected,
-          labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
-          destinations: _tabs.map((tab) => tab.navDestination).toList(),
         );
       },
     );
@@ -266,14 +280,6 @@ class _HomePageState extends ConsumerState<HomePage>
     }
     _goAuth();
 
-    if (Stores.setting.autoCheckAppUpdate.fetch()) {
-      AppUpdateIface.doUpdate(
-        build: BuildData.build,
-        githubReleasesUrl: Urls.githubReleasesApi,
-        storeUrl: Urls.appStore,
-        context: context,
-      );
-    }
     unawaited(MethodChans.updateHomeWidget());
     await _notifier.refresh();
 
@@ -330,17 +336,262 @@ class _HomePageState extends ConsumerState<HomePage>
 
 final class _AppBar extends StatelessWidget implements PreferredSizeWidget {
   final double paddingTop;
+  final bool paintGlass;
 
-  const _AppBar(this.paddingTop);
+  const _AppBar(this.paddingTop, {required this.paintGlass});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(height: preferredSize.height);
+    final scheme = Theme.of(context).colorScheme;
+    final overlayStyle = Theme.of(context).brightness == Brightness.dark
+        ? SystemUiOverlayStyle.light
+        : SystemUiOverlayStyle.dark;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlayStyle.copyWith(
+        statusBarColor: Colors.transparent,
+        systemStatusBarContrastEnforced: false,
+      ),
+      child: SizedBox(
+        height: preferredSize.height,
+        child: paintGlass
+            ? ClipRect(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withAlpha(148),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: scheme.outlineVariant.withAlpha(42),
+                          width: 0.7,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            : const ColoredBox(color: Colors.transparent),
+      ),
+    );
   }
 
   @override
   Size get preferredSize {
     return Size.fromHeight(paddingTop);
+  }
+}
+
+final class _FloatingHomeNavigation extends StatelessWidget {
+  const _FloatingHomeNavigation({
+    required this.tabs,
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+  });
+
+  final List<AppTab> tabs;
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final foreground = scheme.onSurfaceVariant.withAlpha(224);
+    const stadium = StadiumBorder();
+    if (tabs.isEmpty) return const SizedBox.shrink();
+
+    final indicatorIndex = selectedIndex.clamp(0, tabs.length - 1);
+    final direction = Directionality.of(context);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final baseStyle = theme.textTheme.labelMedium;
+    final labelWidths = tabs.map((tab) {
+      final destination = tab.navDestination;
+      final regular = _measureLabel(
+        destination.label,
+        baseStyle?.copyWith(fontWeight: FontWeight.w600),
+        direction,
+        textScaler,
+      );
+      final selected = _measureLabel(
+        destination.label,
+        baseStyle?.copyWith(fontWeight: FontWeight.w700),
+        direction,
+        textScaler,
+      );
+      return regular > selected ? regular : selected;
+    }).toList(growable: false);
+
+    final maxNavWidth = (MediaQuery.sizeOf(context).width - 40).clamp(
+      0.0,
+      520.0,
+    );
+    final baseWidth = labelWidths.fold<double>(24, (sum, width) => sum + width);
+    final horizontalSpace = ((maxNavWidth - 8 - baseWidth) / tabs.length)
+        .clamp(12.0, 28.0);
+    var itemWidths = List<double>.generate(
+      tabs.length,
+      (index) =>
+          labelWidths[index] + horizontalSpace + (index == indicatorIndex ? 24 : 0),
+      growable: false,
+    );
+    final desiredContentWidth = itemWidths.fold<double>(0, (a, b) => a + b);
+    final maxContentWidth = maxNavWidth - 8;
+    if (desiredContentWidth > maxContentWidth && desiredContentWidth > 0) {
+      final scale = maxContentWidth / desiredContentWidth;
+      itemWidths = itemWidths.map((width) => width * scale).toList(growable: false);
+    }
+    final navWidth = itemWidths.fold<double>(8, (sum, width) => sum + width);
+    final indicatorStart = itemWidths
+        .take(indicatorIndex)
+        .fold<double>(4, (sum, width) => sum + width);
+
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      child: Align(
+        heightFactor: 1,
+        child: AnimatedContainer(
+          width: navWidth,
+          height: 60,
+          duration: Durations.medium2,
+          curve: Curves.fastEaseInToSlowEaseOut,
+          decoration: ShapeDecoration(
+            color: Colors.transparent,
+            shape: stadium,
+            shadows: [
+              BoxShadow(
+                color: scheme.shadow.withAlpha(22),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipPath(
+            clipper: const ShapeBorderClipper(shape: stadium),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  DecoratedBox(
+                    decoration: ShapeDecoration(
+                      color: scheme.surface.withAlpha(148),
+                      shape: StadiumBorder(
+                        side: BorderSide(
+                          color: scheme.outlineVariant.withAlpha(54),
+                          width: 0.7,
+                        ),
+                      ),
+                    ),
+                  ),
+                  AnimatedPositionedDirectional(
+                    start: indicatorStart,
+                    top: 9,
+                    width: itemWidths[indicatorIndex] - 8,
+                    height: 42,
+                    duration: Durations.medium2,
+                    curve: Curves.fastEaseInToSlowEaseOut,
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: ShapeDecoration(
+                          color: scheme.surfaceContainerHighest.withAlpha(190),
+                          shape: stadium,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(tabs.length, (index) {
+                      final destination = tabs[index].navDestination;
+                      final selected = indicatorIndex == index;
+                      return AnimatedContainer(
+                        width: itemWidths[index],
+                        duration: Durations.medium2,
+                        curve: Curves.fastEaseInToSlowEaseOut,
+                        child: Semantics(
+                          button: true,
+                          selected: selected,
+                          label: destination.label,
+                          child: Material(
+                            type: MaterialType.transparency,
+                            child: InkWell(
+                              customBorder: stadium,
+                              overlayColor: const WidgetStatePropertyAll(
+                                Colors.transparent,
+                              ),
+                              splashFactory: NoSplash.splashFactory,
+                              onTap: () => onDestinationSelected(index),
+                              child: Center(
+                                child: AnimatedSwitcher(
+                                  duration: Durations.short4,
+                                  child: IconTheme(
+                                    data: IconThemeData(
+                                      size: 20,
+                                      color: foreground,
+                                    ),
+                                    child: selected
+                                        ? Row(
+                                            key: ValueKey('selected-$index'),
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              destination.selectedIcon ??
+                                                  destination.icon,
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                destination.label,
+                                                maxLines: 1,
+                                                softWrap: false,
+                                                style: baseStyle?.copyWith(
+                                                  color: foreground,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                        : Text(
+                                            destination.label,
+                                            key: ValueKey(
+                                              'unselected-$index',
+                                            ),
+                                            maxLines: 1,
+                                            softWrap: false,
+                                            style: baseStyle?.copyWith(
+                                              color: foreground,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static double _measureLabel(
+    String label,
+    TextStyle? style,
+    TextDirection direction,
+    TextScaler textScaler,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: style),
+      textDirection: direction,
+      textScaler: textScaler,
+      maxLines: 1,
+    )..layout();
+    return painter.width;
   }
 }
 

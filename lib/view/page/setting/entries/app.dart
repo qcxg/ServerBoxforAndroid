@@ -12,7 +12,6 @@ extension _App on _AppSettingsPageState {
       _buildLocale(),
       _buildThemeMode(),
       _buildAppColor(),
-      _buildCheckUpdate(),
       _buildHomeTabs(),
       PlatformPublicSettings.buildBioAuth,
       ?androidSettings,
@@ -20,7 +19,7 @@ extension _App on _AppSettingsPageState {
       _buildAppMore(),
     ];
 
-    return Column(children: children.map((e) => e.cardx).toList());
+    return Column(children: children);
   }
 
   Widget _buildAndroidSettings() {
@@ -91,39 +90,6 @@ extension _App on _AppSettingsPageState {
       title: Text('iOS ${libL10n.setting}'),
       trailing: const Icon(Icons.keyboard_arrow_right),
       onTap: () => IosSettingsPage.route.go(context),
-    );
-  }
-
-  Widget _buildCheckUpdate() {
-    return ListTile(
-      leading: const Icon(Icons.update),
-      title: Text(libL10n.checkUpdate),
-      subtitle: ValBuilder(
-        listenable: AppUpdateIface.newestBuild,
-        builder: (val) {
-          String display;
-          if (val != null) {
-            if (val > BuildData.build) {
-              display = libL10n.versionHasUpdate(val);
-            } else {
-              display = libL10n.versionUpdated(BuildData.build);
-            }
-          } else {
-            display = libL10n.versionUnknownUpdate(BuildData.build);
-          }
-          return Text(display, style: UIs.textGrey);
-        },
-      ),
-      onTap: () => Fns.throttle(
-        () => AppUpdateIface.doUpdate(
-          context: context,
-          build: BuildData.build,
-          githubReleasesUrl: Urls.githubReleasesApi,
-          storeUrl: Urls.appStore,
-          force: BuildMode.isDebug,
-        ),
-      ),
-      trailing: StoreSwitch(prop: _setting.autoCheckAppUpdate),
     );
   }
 
@@ -324,19 +290,11 @@ extension _App on _AppSettingsPageState {
       title: Text(l10n.more),
       initiallyExpanded: false,
       children: [
-        _buildBeta(),
         if (isMobile) _buildWakeLock(),
         _buildCollapseUI(),
         if (isDesktop) _buildHideTitleBar(),
         _buildEditRawSettings(),
       ],
-    );
-  }
-
-  Widget _buildBeta() {
-    return ListTile(
-      title: TipText('Beta Program', l10n.acceptBeta),
-      trailing: StoreSwitch(prop: _setting.betaTest),
     );
   }
 
@@ -503,6 +461,8 @@ extension _App on _AppSettingsPageState {
         closeAfterSave: _setting.closeAfterSave.fetch(),
         softWrap: _setting.editorSoftWrap.fetch(),
         enableHighlight: _setting.editorHighlight.fetch(),
+        softWrapLabel: l10n.softWrap,
+        highlightLabel: l10n.highlight,
         lightTheme: HighlightTheme.fromThemeMapKey(
           _setting.editorTheme.fetch(),
         ),
@@ -510,6 +470,7 @@ extension _App on _AppSettingsPageState {
           _setting.editorDarkTheme.fetch(),
         ),
         fontFamily: editorFont.isEmpty ? null : editorFont,
+        fontSize: _setting.editorFontSize.fetch(),
       ),
     );
   }

@@ -21,7 +21,7 @@ extension _Server on _AppSettingsPageState {
         _buildDeleteServers(),
         _buildCpuView(),
         _buildServerMore(),
-      ].map((e) => CardX(child: e)).toList(),
+      ],
     );
   }
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fl_lib/fl_lib.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:server_box/core/chan.dart';
 import 'package:server_box/data/model/sftp/req.dart';
 import 'package:server_box/data/model/sftp/status.dart';
 
@@ -19,6 +20,8 @@ abstract class SftpState with _$SftpState {
 
 @Riverpod(keepAlive: true)
 class SftpNotifier extends _$SftpNotifier {
+  final Set<int> _announcedUploadBatch = {};
+
   @override
   SftpState build() {
     return const SftpState();
@@ -32,12 +35,19 @@ class SftpNotifier extends _$SftpNotifier {
     }
   }
 
-  int add(SftpReq req, {Completer? completer}) {
+  int add(
+    SftpReq req, {
+    Completer<bool>? completer,
+    bool announceUpload = true,
+  }) {
     final reqStat = SftpReqStatus(
       notifyListeners: _notifyRequestUpdated,
       completer: completer,
       req: req,
     );
+    if (announceUpload && req.type == SftpReqType.upload) {
+      _announcedUploadBatch.add(reqStat.id);
+    }
     _setRequests([...state.requests, reqStat]);
     return reqStat.id;
   }
@@ -47,6 +57,7 @@ class SftpNotifier extends _$SftpNotifier {
       item.dispose();
     }
     _setRequests([]);
+    _announcedUploadBatch.clear();
   }
 
   void cancel(int id) {
@@ -80,5 +91,28 @@ class SftpNotifier extends _$SftpNotifier {
       requests: List<SftpReqStatus>.from(state.requests),
       revision: state.revision + 1,
     );
+    _announceCompletedUploadBatch();
+  }
+
+  void _announceCompletedUploadBatch() {
+    if (_announcedUploadBatch.isEmpty) return;
+    final uploads = state.requests
+        .where((request) => _announcedUploadBatch.contains(request.id))
+        .toList(growable: false);
+    if (uploads.length != _announcedUploadBatch.length) return;
+    final allFinished = uploads.every(
+      (request) =>
+          request.error != null ||
+          request.status == SftpWorkerStatus.finished,
+    );
+    if (!allFinished) return;
+
+    final failed = uploads.where((request) => request.error != null).length;
+    final total = uploads.length;
+    _announcedUploadBatch.clear();
+    final message = failed == 0
+        ? '${libL10n.upload} ${libL10n.success} ($total)'
+        : '${libL10n.upload} ${libL10n.fail} ($failed/$total)';
+    unawaited(MethodChans.showToast(message));
   }
 }

@@ -1272,6 +1272,18 @@ abstract class AppLocalizations {
   /// **'Display folders first'**
   String get sftpShowFoldersFirst;
 
+  /// No description provided for @sshSftpLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Link SSH and SFTP'**
+  String get sshSftpLink;
+
+  /// No description provided for @sshSftpLinkTip.
+  ///
+  /// In en, this message translates to:
+  /// **'Opening or switching an SSH connection automatically opens the same server in Files.'**
+  String get sshSftpLinkTip;
+
   /// No description provided for @size.
   ///
   /// In en, this message translates to:
@@ -1799,6 +1811,144 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Systemd'**
   String get systemd;
+
+  /// No description provided for @sshCommandBuffer.
+  ///
+  /// In en, this message translates to:
+  /// **'Command buffer'**
+  String get sshCommandBuffer;
+
+  /// No description provided for @sshCommandBufferHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Local only; enter one command per line. Use send all for multiline shell constructs.'**
+  String get sshCommandBufferHint;
+
+  /// No description provided for @sshDirectInput.
+  ///
+  /// In en, this message translates to:
+  /// **'Direct input mode'**
+  String get sshDirectInput;
+
+  /// No description provided for @sshSendAllAtOnce.
+  ///
+  /// In en, this message translates to:
+  /// **'Send all'**
+  String get sshSendAllAtOnce;
+
+  /// No description provided for @sshSendLineByLine.
+  ///
+  /// In en, this message translates to:
+  /// **'Line by line'**
+  String get sshSendLineByLine;
+
+  /// No description provided for @sshSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send'**
+  String get sshSend;
+
+  /// No description provided for @sshConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get sshConnecting;
+
+  /// No description provided for @sshConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected'**
+  String get sshConnected;
+
+  /// No description provided for @sshConnectionLost.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection lost'**
+  String get sshConnectionLost;
+
+  /// No description provided for @sshSendAllHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Single line runs with Enter; multiline shell blocks are sent together.'**
+  String get sshSendAllHelp;
+
+  /// No description provided for @sshSendLineByLineHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Each non-empty line runs separately in order.'**
+  String get sshSendLineByLineHelp;
+
+  /// No description provided for @exitBackgroundDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'This stops every SSH session, server monitor, port forward, and file transfer before closing ServerBox.'**
+  String get exitBackgroundDescription;
+
+  /// No description provided for @stopAndExit.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop and exit'**
+  String get stopAndExit;
+
+  /// No description provided for @snippetLibraryDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Reusable commands'**
+  String get snippetLibraryDescription;
+
+  /// No description provided for @snippetNoMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'No snippets match the current search or filters.'**
+  String get snippetNoMatch;
+
+  /// No description provided for @snippetCopySuffix.
+  ///
+  /// In en, this message translates to:
+  /// **'copy'**
+  String get snippetCopySuffix;
+
+  /// No description provided for @snippetDuplicate.
+  ///
+  /// In en, this message translates to:
+  /// **'Duplicate'**
+  String get snippetDuplicate;
+
+  /// No description provided for @snippetInsertVariable.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert a variable or control key'**
+  String get snippetInsertVariable;
+
+  /// No description provided for @snippetAutoRunDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Optionally run this snippet after selected servers connect.'**
+  String get snippetAutoRunDescription;
+
+  /// No description provided for @snippetUnsavedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsaved snippet'**
+  String get snippetUnsavedTitle;
+
+  /// No description provided for @snippetUnsavedDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard the changes made to this snippet?'**
+  String get snippetUnsavedDescription;
+
+  /// No description provided for @snippetDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard'**
+  String get snippetDiscard;
+
+  /// No description provided for @snippetNameExists.
+  ///
+  /// In en, this message translates to:
+  /// **'A snippet with this name already exists.'**
+  String get snippetNameExists;
 }
 
 class _AppLocalizationsDelegate

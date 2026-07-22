@@ -6,6 +6,7 @@ import 'package:fl_lib/fl_lib.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:icons_plus/icons_plus.dart';
+import 'package:server_box/core/chan.dart';
 import 'package:server_box/core/extension/context/locale.dart';
 import 'package:server_box/core/extension/sftpfile.dart';
 import 'package:server_box/core/extension/ssh_client.dart';
@@ -22,9 +23,12 @@ import 'package:server_box/data/provider/sftp.dart';
 import 'package:server_box/data/res/misc.dart';
 import 'package:server_box/data/res/store.dart';
 import 'package:server_box/view/page/ssh/page/page.dart';
+import 'package:server_box/view/page/storage/file_pane_controller.dart';
 import 'package:server_box/view/page/storage/local.dart';
 import 'package:server_box/view/page/storage/sftp_mission.dart';
-import 'package:server_box/view/widget/omit_start_text.dart';
+import 'package:server_box/view/widget/file_type_icon.dart';
+import 'package:server_box/view/widget/glass_context_menu.dart';
+import 'package:server_box/view/widget/glass_surface.dart';
 import 'package:server_box/view/widget/unix_perm.dart';
 
 part 'sftp_helpers.dart';
@@ -33,6 +37,15 @@ final _sftpPermissionDeniedReg = RegExp(
   r'permission denied',
   caseSensitive: false,
 );
+
+enum _EmbeddedSftpAction {
+  mission,
+  search,
+  sortName,
+  sortSize,
+  sortTime,
+  sudo,
+}
 
 final class SftpPageArgs {
   final Spi spi;
@@ -44,8 +57,17 @@ final class SftpPageArgs {
 
 class SftpPage extends ConsumerStatefulWidget {
   final SftpPageArgs args;
+  final bool embedded;
+  final FilePaneController? paneController;
+  final FilePaneController? transferTargetController;
 
-  const SftpPage({super.key, required this.args});
+  const SftpPage({
+    super.key,
+    required this.args,
+    this.embedded = false,
+    this.paneController,
+    this.transferTargetController,
+  });
 
   @override
   ConsumerState<SftpPage> createState() => _SftpPageState();
@@ -62,12 +84,17 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
   late final SftpSudoHelper _sudoHelper;
   final _sortOption = _SortOption().vn;
   final _sudoMode = false.vn;
+  final _pathController = TextEditingController(text: '/');
+  final _pathFocusNode = FocusNode();
+  bool _isInitialLoading = true;
   int _filesVersion = 0;
   int _sortedFilesVersion = -1;
   _SortOption? _sortedFilesOption;
   bool? _sortedFilesShowFoldersFirst;
   List<SftpName>? _sortedFilesCache;
   Future<SftpClient>? _openingClientFuture;
+  final Set<String> _selectedNames = {};
+  bool _selectionMode = false;
 
   bool get _useSudo => _sudoHelper.enabled && _sudoMode.value;
 
@@ -82,14 +109,30 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
       spi: widget.args.spi,
       contextProvider: () => mounted ? context : null,
     );
+    widget.paneController?.attach(
+      owner: this,
+      path: _status.path.path,
+      server: widget.args.spi,
+      refresh: () async => _listDir(null, true),
+      goHome: _goHome,
+      create: _showAddDialog,
+      deleteSelected: _deleteSelected,
+      transferSelected: _transferSelected,
+      toggleSelectionMode: _toggleSelectionMode,
+      selectAll: _selectAll,
+      clearSelection: _clearSelection,
+    );
   }
 
   @override
   void dispose() {
+    widget.paneController?.detach(this);
     _status.client?.close();
     _openingClientFuture = null;
     _sortOption.dispose();
     _sudoMode.dispose();
+    _pathFocusNode.dispose();
+    _pathController.dispose();
     super.dispose();
   }
 
@@ -106,6 +149,10 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
     ];
     if (isDesktop) children.add(_buildRefreshBtn());
 
+    if (widget.embedded) {
+      return _buildEmbeddedFilePane(children);
+    }
+
     return Scaffold(
       appBar: CustomAppBar(
         title: Text(widget.args.spi.name),
@@ -113,6 +160,59 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
       ),
       body: _buildFileView(),
       bottomNavigationBar: _buildBottom(),
+    );
+  }
+
+  Widget _buildEmbeddedFilePane(List<Widget> actions) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 280;
+            return SizedBox(
+              height: compact ? 44 : 52,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  compact ? 7 : 14,
+                  4,
+                  compact ? 2 : 6,
+                  0,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.cloud_rounded,
+                      size: compact ? 20 : 24,
+                      color: scheme.primary,
+                    ),
+                    SizedBox(width: compact ? 5 : 10),
+                    Expanded(
+                      child: Text(
+                        widget.args.spi.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    if (compact)
+                      _buildCompactActionsMenu()
+                    else
+                      ...actions,
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 0, 6, 3),
+          child: _buildPathCard(),
+        ),
+        Expanded(child: _buildFileView()),
+        if (widget.paneController == null) _buildBottom(showPath: false),
+      ],
     );
   }
 
@@ -162,6 +262,8 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
     }
 
     _status.path.path = widget.args.initPath ?? initPath;
+    _syncPathController();
+    _syncPaneController();
     unawaited(_listDir(context));
   }
 }
@@ -207,7 +309,7 @@ extension _UI on _SftpPageState {
     });
   }
 
-  Widget _buildBottom() {
+  Widget _buildBottom({bool showPath = true}) {
     final children = widget.args.isSelect
         ? [
             IconButton(
@@ -220,34 +322,344 @@ extension _UI on _SftpPageState {
             _buildBackBtn(),
             _buildHomeBtn(),
             _buildAddBtn(),
-            _buildGotoBtn(),
             _buildUploadBtn(),
           ];
     return SafeArea(
-      child: Container(
+      child: Padding(
         padding: const EdgeInsets.fromLTRB(11, 7, 11, 11),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _sudoMode.listenVal((enabled) {
-              return Row(
-                children: [
-                  Expanded(child: OmitStartText(_status.path.path)),
-                  if (enabled) ...[
-                    UIs.width7,
-                    Icon(Icons.security, size: 16, color: UIs.primaryColor),
-                  ],
-                ],
-              );
-            }),
+            if (showPath) _buildPathCard(),
+            if (showPath) const SizedBox(height: 4),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: children,
+              children: children
+                  .map(
+                    (child) => Expanded(
+                      child: Center(child: child),
+                    ),
+                  )
+                  .toList(growable: false),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildPathCard() {
+    return _sudoMode.listenVal((enabled) {
+      final scheme = Theme.of(context).colorScheme;
+      return GlassSurface(
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(11)),
+        ),
+        child: SizedBox(
+          height: widget.embedded ? 40 : null,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: widget.embedded ? 9 : 14,
+              right: widget.embedded ? 2 : 5,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.folder_open_rounded,
+                  size: widget.embedded ? 18 : 21,
+                  color: scheme.primary,
+                ),
+                SizedBox(width: widget.embedded ? 6 : 10),
+                Expanded(
+                  child: TextField(
+                    controller: _pathController,
+                    focusNode: _pathFocusNode,
+                    enabled: !_isInitialLoading,
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.go,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    style: widget.embedded
+                        ? Theme.of(context).textTheme.bodySmall
+                        : null,
+                    decoration: InputDecoration(
+                      labelText: widget.embedded ? null : libL10n.path,
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: widget.embedded ? EdgeInsets.zero : null,
+                    ),
+                    onTapOutside: (_) => _pathFocusNode.unfocus(),
+                    onSubmitted: _openPathFromEditor,
+                  ),
+                ),
+                if (enabled)
+                  Icon(
+                    Icons.security_rounded,
+                    size: 15,
+                    color: scheme.primary,
+                  ),
+                IconButton(
+                  tooltip: l10n.goto,
+                  visualDensity: widget.embedded
+                      ? VisualDensity.compact
+                      : null,
+                  onPressed: _isInitialLoading
+                      ? null
+                      : () => _openPathFromEditor(_pathController.text),
+                  icon: Icon(
+                    Icons.arrow_forward_rounded,
+                    size: widget.embedded ? 19 : 24,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _buildCompactActionsMenu() {
+    return PopupMenuButton<_EmbeddedSftpAction>(
+      tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+      icon: const Icon(Icons.more_vert_rounded),
+      onSelected: (action) {
+        switch (action) {
+          case _EmbeddedSftpAction.mission:
+            SftpMissionPage.route.go(context);
+          case _EmbeddedSftpAction.search:
+            _showFileSearch();
+          case _EmbeddedSftpAction.sortName:
+            _selectSort(_SortType.name);
+          case _EmbeddedSftpAction.sortSize:
+            _selectSort(_SortType.size);
+          case _EmbeddedSftpAction.sortTime:
+            _selectSort(_SortType.time);
+          case _EmbeddedSftpAction.sudo:
+            _sudoMode.value = !_sudoMode.value;
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _EmbeddedSftpAction.mission,
+          child: ListTile(
+            leading: const Icon(Icons.downloading_rounded),
+            title: Text(libL10n.mission),
+          ),
+        ),
+        PopupMenuItem(
+          value: _EmbeddedSftpAction.search,
+          child: ListTile(
+            leading: const Icon(Icons.search_rounded),
+            title: Text(libL10n.search),
+          ),
+        ),
+        PopupMenuItem(
+          value: _EmbeddedSftpAction.sortName,
+          child: ListTile(
+            leading: const Icon(Icons.sort_by_alpha_rounded),
+            title: Text('${l10n.sort}: ${libL10n.name}'),
+          ),
+        ),
+        PopupMenuItem(
+          value: _EmbeddedSftpAction.sortSize,
+          child: ListTile(
+            leading: const Icon(Icons.data_usage_rounded),
+            title: Text('${l10n.sort}: ${l10n.size}'),
+          ),
+        ),
+        PopupMenuItem(
+          value: _EmbeddedSftpAction.sortTime,
+          child: ListTile(
+            leading: const Icon(Icons.schedule_rounded),
+            title: Text('${l10n.sort}: ${l10n.time}'),
+          ),
+        ),
+        if (_sudoHelper.enabled)
+          PopupMenuItem(
+            value: _EmbeddedSftpAction.sudo,
+            child: ListTile(
+              leading: const Icon(Icons.security_rounded),
+              title: Text(l10n.trySudo),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _selectSort(_SortType sortBy) {
+    final old = _sortOption.value;
+    _sortOption.value = old.sortBy == sortBy
+        ? old.copyWith(reversed: !old.reversed)
+        : old.copyWith(sortBy: sortBy);
+  }
+
+  void _syncPaneController() {
+    widget.paneController?.update(
+      owner: this,
+      path: _status.path.path,
+      selectedCount: _selectedNames.length,
+      selectionMode: _selectionMode,
+    );
+  }
+
+  void _toggleSelectionMode() {
+    setStateSafe(() {
+      _selectionMode = !_selectionMode;
+      if (!_selectionMode) _selectedNames.clear();
+    });
+    _syncPaneController();
+  }
+
+  void _selectAll() {
+    setStateSafe(() {
+      _selectionMode = true;
+      _selectedNames
+        ..clear()
+        ..addAll(
+          _status.files
+              .where((file) => file.filename != '.' && file.filename != '..')
+              .map((file) => file.filename),
+        );
+    });
+    _syncPaneController();
+  }
+
+  void _clearSelection() {
+    if (!_selectionMode && _selectedNames.isEmpty) return;
+    setStateSafe(() {
+      _selectionMode = false;
+      _selectedNames.clear();
+    });
+    _syncPaneController();
+  }
+
+  void _toggleSelected(String name) {
+    setStateSafe(() {
+      if (!_selectedNames.add(name)) _selectedNames.remove(name);
+    });
+    _syncPaneController();
+  }
+
+  Future<void> _goHome() async {
+    _pathFocusNode.unfocus();
+    final user = widget.args.spi.user;
+    _status.path.path = user != 'root' ? '/home/$user' : '/root';
+    _clearSelection();
+    await _listDir();
+  }
+
+  Future<void> _showAddDialog() async {
+    await context.showRoundDialog(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Btn.tile(
+            icon: const Icon(Icons.folder),
+            text: libL10n.folder,
+            onTap: _mkdir,
+          ),
+          Btn.tile(
+            icon: const Icon(Icons.insert_drive_file),
+            text: libL10n.file,
+            onTap: _newFile,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteSelected() async {
+    if (_selectedNames.isEmpty) return;
+    final confirmed = await context.showRoundDialog<bool>(
+      title: libL10n.delete,
+      child: Text(libL10n.askContinue('${_selectedNames.length}')),
+      actions: Btnx.cancelRedOk,
+    );
+    if (confirmed != true || !mounted) return;
+    final selected = _status.files
+        .where((file) => _selectedNames.contains(file.filename))
+        .toList(growable: false);
+    final (_, error) = await context.showLoadingDialog(
+      fn: () async {
+        String? sudoPassword;
+        if (_useSudo) {
+          sudoPassword = await _sudoHelper.ensurePassword();
+          if (sudoPassword == null) throw Exception(libL10n.cancel);
+        }
+        for (final file in selected) {
+          final remotePath = _getRemotePath(file);
+          final isDir = file.attr.isDirectory;
+          if (sudoPassword != null) {
+            await _sudoHelper.delete(
+              remotePath,
+              isDir: isDir,
+              recursive: isDir,
+              password: sudoPassword,
+            );
+          } else if (isDir && Stores.setting.sftpRmrDir.fetch()) {
+            await _runShellCommand('rm -r ${shellSingleQuote(remotePath)}');
+          } else if (isDir) {
+            await _status.client!.rmdir(remotePath);
+          } else {
+            await _status.client!.remove(remotePath);
+          }
+        }
+        return true;
+      },
+    );
+    if (error != null) return;
+    _clearSelection();
+    await _listDir();
+  }
+
+  Future<void> _transferSelected(FilePaneTarget target) async {
+    if (_selectedNames.isEmpty) return;
+    final files = _status.files.where(
+      (file) =>
+          _selectedNames.contains(file.filename) && !file.attr.isDirectory,
+    ).toList(growable: false);
+    if (files.isEmpty) {
+      context.showSnackBar(libL10n.empty);
+      return;
+    }
+    await _downloadFilesToTarget(files, target, clearSelectionAfter: true);
+  }
+
+  Future<void> _downloadFilesToTarget(
+    Iterable<SftpName> files,
+    FilePaneTarget target, {
+    bool clearSelectionAfter = false,
+  }) async {
+    if (!await ensureHostKeyAcceptedForSftp(context, widget.args.spi)) return;
+    await Directory(target.path).create(recursive: true);
+    final completions = <Future<bool>>[];
+    for (final file in files) {
+      final completer = Completer<bool>();
+      ref
+          .read(sftpProvider.notifier)
+          .add(
+            SftpReq(
+              widget.args.spi,
+              _getRemotePath(file),
+              target.path.joinPath(file.filename),
+              SftpReqType.download,
+            ),
+            completer: completer,
+          );
+      completions.add(completer.future);
+    }
+    if (clearSelectionAfter) _clearSelection();
+    context.showSnackBar(l10n.added2List);
+    unawaited(_refreshLocalTargetAfter(completions, target));
+  }
+
+  Future<void> _refreshLocalTargetAfter(
+    List<Future<bool>> completions,
+    FilePaneTarget target,
+  ) async {
+    if (completions.isEmpty) return;
+    await Future.wait(completions);
+    await widget.transferTargetController?.refreshIfCurrent(target);
   }
 
   Widget _buildSudoBtn() {
@@ -261,6 +673,9 @@ extension _UI on _SftpPageState {
   }
 
   Widget _buildFileView() {
+    if (_isInitialLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (_status.files.isEmpty) return Center(child: Text(libL10n.empty));
 
     return RefreshIndicator(
@@ -273,7 +688,12 @@ extension _UI on _SftpPageState {
             final files = _getSortedFiles(sortOption);
             return ListView.builder(
               itemCount: files.length,
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              padding: EdgeInsets.fromLTRB(
+                widget.embedded ? 3 : 7,
+                3,
+                widget.embedded ? 3 : 7,
+                widget.embedded ? 148 : 3,
+              ),
               itemBuilder: (_, index) => _buildItem(files[index]),
             );
           },
@@ -284,69 +704,105 @@ extension _UI on _SftpPageState {
 
   Widget _buildItem(SftpName file, {VoidCallback? beforeTap}) {
     final isDir = file.attr.isDirectory;
-    final double screenWidth = MediaQuery.sizeOf(context).width;
-    if (screenWidth < 350) {
-      return CardX(
-        child: ListTile(
-          leading: Icon(
-            isDir ? Icons.folder_outlined : Icons.insert_drive_file,
-          ),
-          title: Text(file.filename),
-          subtitle: isDir
-              ? Text(
-                  '${_getTime(file.attr.modifyTime)}\n${file.attr.mode?.str ?? ''}',
-                  style: UIs.textGrey,
-                )
-              : Text(
-                  '${(file.attr.size ?? 0).bytes2Str}\n${_getTime(file.attr.modifyTime)}\n${file.attr.mode?.str ?? ''}',
-                  style: UIs.textGrey,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        Offset? pressPosition;
+        final compact = constraints.maxWidth < 390;
+        final modified = _getTime(file.attr.modifyTime);
+        final mode = file.attr.mode?.str ?? '';
+        final size = (file.attr.size ?? 0).bytes2Str;
+        final selected = _selectedNames.contains(file.filename);
+        final tile = ListTile(
+            dense: widget.embedded,
+            visualDensity: widget.embedded
+                ? const VisualDensity(vertical: -4)
+                : null,
+            contentPadding: widget.embedded
+                ? const EdgeInsets.symmetric(horizontal: 8)
+                : null,
+            minLeadingWidth: widget.embedded ? 24 : null,
+            selected: selected,
+            selectedTileColor: Theme.of(
+              context,
+            ).colorScheme.secondaryContainer.withAlpha(120),
+            leading: _selectionMode
+                ? Checkbox(
+                    value: selected,
+                    visualDensity: VisualDensity.compact,
+                    onChanged: (_) => _toggleSelected(file.filename),
+                  )
+                : FileTypeIcon(
+                    name: file.filename,
+                    isDirectory: isDir,
+                    size: widget.embedded ? 20 : 24,
+                  ),
+            title: Text(
+              file.filename,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: widget.embedded
+                  ? Theme.of(context).textTheme.bodyMedium
+                  : null,
+            ),
+            trailing: compact || widget.embedded
+                ? null
+                : Text(
+                    '$modified\n$mode',
+                    style: UIs.textGrey,
+                    textAlign: TextAlign.right,
+                  ),
+            subtitle: widget.embedded
+                ? null
+                : compact
+                ? Text(
+                    [if (!isDir) size, modified, mode]
+                        .where((value) => value.isNotEmpty)
+                        .join('\n'),
+                    style: UIs.textGrey,
+                  )
+                : isDir
+                ? null
+                : Text(size, style: UIs.textGrey),
+            onTap: () {
+              beforeTap?.call();
+              if (_selectionMode && file.filename != '..') {
+                _toggleSelected(file.filename);
+                return;
+              }
+              if (isDir) {
+                _pathFocusNode.unfocus();
+                _clearSelection();
+                _status.path.path = file.filename;
+                _listDir();
+              } else {
+                _edit(file, popMenu: false);
+              }
+            },
+            onLongPress: () {
+              beforeTap?.call();
+              _onItemPress(file, !isDir, pressPosition ?? Offset.zero);
+            },
+          );
+        final child = widget.embedded
+            ? DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.outlineVariant.withAlpha(55),
+                    ),
+                  ),
                 ),
-          onTap: () {
-            beforeTap?.call();
-            if (isDir) {
-              _status.path.path = file.filename;
-              _listDir();
-            } else {
-              _edit(file, popMenu: false);
-            }
-          },
-          onLongPress: () {
-            beforeTap?.call();
-            _onItemPress(file, !isDir);
-          },
-        ),
-      );
-    } else {
-      return CardX(
-        child: ListTile(
-          leading: Icon(
-            isDir ? Icons.folder_outlined : Icons.insert_drive_file,
-          ),
-          title: Text(file.filename),
-          trailing: Text(
-            '${_getTime(file.attr.modifyTime)}\n${file.attr.mode?.str ?? ''}',
-            style: UIs.textGrey,
-            textAlign: TextAlign.right,
-          ),
-          subtitle: isDir
-              ? null
-              : Text((file.attr.size ?? 0).bytes2Str, style: UIs.textGrey),
-          onTap: () {
-            beforeTap?.call();
-            if (isDir) {
-              _status.path.path = file.filename;
-              _listDir();
-            } else {
-              _edit(file, popMenu: false);
-            }
-          },
-          onLongPress: () {
-            beforeTap?.call();
-            _onItemPress(file, !isDir);
-          },
-        ),
-      );
-    }
+                child: tile,
+              )
+            : CardX(child: tile);
+        return Listener(
+          onPointerDown: (event) => pressPosition = event.position,
+          child: child,
+        );
+      },
+    );
   }
 
   List<SftpName> _getSortedFiles(_SortOption sortOption) {
@@ -463,7 +919,7 @@ extension _Actions on _SftpPageState {
 
     final tmpPath =
         '/tmp/serverbox-upload-${DateTime.now().microsecondsSinceEpoch}-$fileName';
-    final completer = Completer();
+    final completer = Completer<bool>();
     final req = SftpReq(
       widget.args.spi,
       tmpPath,
@@ -472,11 +928,15 @@ extension _Actions on _SftpPageState {
     );
     final reqId = ref
         .read(sftpProvider.notifier)
-        .add(req, completer: completer);
+        .add(req, completer: completer, announceUpload: false);
 
     final (uploaded, uploadErr) = await context.showLoadingDialog(
       fn: () async {
-        await completer.future;
+        final success = await completer.future;
+        if (!success) {
+          final status = ref.read(sftpProvider.notifier).get(reqId);
+          throw status?.error ?? Exception(libL10n.fail);
+        }
         final status = ref.read(sftpProvider.notifier).get(reqId);
         if (status?.error != null) {
           throw status!.error!;
@@ -502,80 +962,78 @@ extension _Actions on _SftpPageState {
     return false;
   }
 
-  void _onItemPress(SftpName file, bool notDir) {
-    final children = [
-      ListTile(
-        leading: const Icon(Icons.delete),
-        title: Text(libL10n.delete),
-        onTap: () => _delete(file),
-      ),
-      ListTile(
-        leading: const Icon(Icons.abc),
-        title: Text(libL10n.rename),
-        onTap: () => _rename(file),
-      ),
-      ListTile(
-        leading: const Icon(MingCute.copy_line),
-        title: Text(l10n.copyPath),
-        onTap: () {
-          context.pop();
-          Pfs.copy(_getRemotePath(file));
-          context.showSnackBar(libL10n.success);
-        },
-      ),
-      ListTile(
-        leading: const Icon(Icons.security),
-        title: Text(l10n.permission),
-        onTap: () async {
-          context.pop();
-
-          final perm = file.attr.mode?.toUnixPerm() ?? UnixPerm.empty;
-          var newPerm = perm.copyWith();
-          final ok = await context.showRoundDialog(
-            child: UnixPermEditor(perm: perm, onChanged: (p) => newPerm = p),
-            actions: Btnx.okReds,
-          );
-
-          final permStr = newPerm.perm;
-          if (ok == true && permStr != perm.perm) {
-            final remotePath = _getRemotePath(file);
-            final suc = await _runWithSudoRetry(
-              normal: () => _runShellCommand(
-                'chmod ${shellSingleQuote(permStr)} ${shellSingleQuote(remotePath)}',
-              ),
-              sudo: (pwd) =>
-                  _sudoHelper.chmod(permStr, remotePath, password: pwd),
-            );
-            if (!suc) return;
-            await _listDir();
-          }
-        },
-      ),
-    ];
-    if (notDir) {
-      children.addAll([
-        ListTile(
-          leading: const Icon(Icons.edit),
-          title: Text(libL10n.edit),
-          onTap: () => _edit(file),
-        ),
-        ListTile(
-          leading: const Icon(Icons.download),
-          title: Text(libL10n.download),
-          onTap: () => _download(file),
-        ),
-        // Only show decompress option when the file is a compressed file
-        if (_canDecompress(file.filename))
-          ListTile(
-            leading: const Icon(Icons.folder_zip),
-            title: Text(libL10n.decompress),
-            onTap: () => _decompress(file),
+  void _onItemPress(SftpName file, bool notDir, Offset anchor) {
+    final transferTarget = widget.transferTargetController?.transferTarget;
+    showGlassContextMenu(
+      context,
+      anchor: anchor,
+      actions: [
+        if (notDir)
+          GlassContextMenuAction(
+            icon: Icons.edit_rounded,
+            label: libL10n.edit,
+            onPressed: () => _edit(file, popMenu: false),
           ),
-      ]);
-    }
-    context.showRoundDialog(
-      child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        if (notDir && (transferTarget != null || !widget.embedded))
+          GlassContextMenuAction(
+            icon: Icons.download_rounded,
+            label: libL10n.download,
+            onPressed: transferTarget != null
+                ? () => _downloadFilesToTarget([file], transferTarget)
+                : () => _download(file, popMenu: false),
+          ),
+        if (notDir && _canDecompress(file.filename))
+          GlassContextMenuAction(
+            icon: Icons.folder_zip_rounded,
+            label: libL10n.decompress,
+            onPressed: () => _decompress(file, popMenu: false),
+          ),
+        GlassContextMenuAction(
+          icon: Icons.drive_file_rename_outline_rounded,
+          label: libL10n.rename,
+          onPressed: () => _rename(file, popMenu: false),
+        ),
+        GlassContextMenuAction(
+          icon: MingCute.copy_line,
+          label: l10n.copyPath,
+          onPressed: () {
+            Pfs.copy(_getRemotePath(file));
+            context.showSnackBar(libL10n.success);
+          },
+        ),
+        GlassContextMenuAction(
+          icon: Icons.security_rounded,
+          label: l10n.permission,
+          onPressed: () => _changePermissions(file),
+        ),
+        GlassContextMenuAction(
+          icon: Icons.delete_outline_rounded,
+          label: libL10n.delete,
+          destructive: true,
+          onPressed: () => _delete(file, popMenu: false),
+        ),
+      ],
     );
+  }
+
+  Future<void> _changePermissions(SftpName file) async {
+    final perm = file.attr.mode?.toUnixPerm() ?? UnixPerm.empty;
+    var newPerm = perm.copyWith();
+    final ok = await context.showRoundDialog(
+      child: UnixPermEditor(perm: perm, onChanged: (p) => newPerm = p),
+      actions: Btnx.okReds,
+    );
+    final permStr = newPerm.perm;
+    if (ok != true || permStr == perm.perm) return;
+    final remotePath = _getRemotePath(file);
+    final suc = await _runWithSudoRetry(
+      normal: () => _runShellCommand(
+        'chmod ${shellSingleQuote(permStr)} ${shellSingleQuote(remotePath)}',
+      ),
+      sudo: (pwd) => _sudoHelper.chmod(permStr, remotePath, password: pwd),
+    );
+    if (!suc) return;
+    await _listDir();
   }
 
   Future<void> _edit(SftpName name, {bool popMenu = true}) async {
@@ -597,14 +1055,33 @@ extension _Actions on _SftpPageState {
     }
 
     int? size = name.attr.size;
+    String? sudoPassword;
     if (useSudoForEdit) {
-      final pwd = await _sudoHelper.ensurePassword();
-      if (pwd == null) return;
+      sudoPassword = await _sudoHelper.ensurePassword();
+      if (sudoPassword == null) return;
       final (ret, err) = await context.showLoadingDialog(
-        fn: () => _sudoHelper.getFileSize(remotePath, password: pwd),
+        fn: () => _sudoHelper.getFileSize(
+          remotePath,
+          password: sudoPassword,
+        ),
       );
       if (ret == null || err != null) return;
       size = ret;
+    } else {
+      if (!await ensureHostKeyAcceptedForSftp(context, widget.args.spi)) {
+        return;
+      }
+      if (size == null) {
+        final (attrs, err) = await context.showLoadingDialog(
+          fn: () => withSftpOpTimeout(
+            'stat edit file',
+            _status.client!.stat(remotePath),
+            _sftpOpTimeout,
+          ),
+        );
+        if (attrs == null || err != null) return;
+        size = attrs.size;
+      }
     }
 
     if (size == null || size > Miscs.editorMaxSize) {
@@ -615,26 +1092,24 @@ extension _Actions on _SftpPageState {
     }
 
     final localPath = _getLocalPath(remotePath);
-    if (useSudoForEdit) {
-      final pwd = await _sudoHelper.ensurePassword();
-      if (pwd == null) return;
+    if (size == 0) {
+      final localFile = File(localPath);
+      await localFile.parent.create(recursive: true);
+      await localFile.writeAsBytes(const <int>[]);
+    } else if (useSudoForEdit) {
       final (suc, err) = await context.showLoadingDialog(
         fn: () async {
           await _sudoHelper.downloadTextFile(
             remotePath,
             localPath,
-            password: pwd,
+            password: sudoPassword,
           );
           return true;
         },
       );
       if (suc == null || err != null) return;
     } else {
-      if (!await ensureHostKeyAcceptedForSftp(context, widget.args.spi)) {
-        return;
-      }
-
-      final completer = Completer();
+      final completer = Completer<bool>();
       final req = SftpReq(
         widget.args.spi,
         remotePath,
@@ -645,66 +1120,90 @@ extension _Actions on _SftpPageState {
       final (suc, err) = await context.showLoadingDialog(
         fn: () => completer.future,
       );
-      if (suc == null || err != null) return;
+      if (suc != true || err != null) return;
     }
 
-    await EditorPage.route.go(
-      context,
-      args: EditorPageArgs(
-        path: localPath,
-        onSave: (_) async {
-          if (useSudoForEdit) {
-            final pwd = await _sudoHelper.ensurePassword();
-            if (pwd == null) return;
-            final (suc, err) = await context.showLoadingDialog(
-              fn: () async {
-                await _sudoHelper.uploadTextFile(
-                  localPath,
-                  remotePath,
+    final remoteDir = _status.path.path;
+    var preserveTemporaryCopy = false;
+    var backgroundUploadPending = false;
+    try {
+      await EditorPage.route.go(
+        context,
+        args: EditorPageArgs(
+          path: localPath,
+          onSave: (_) async {
+            if (useSudoForEdit) {
+              final pwd = sudoPassword;
+              if (pwd == null) {
+                preserveTemporaryCopy = true;
+                return;
+              }
+              backgroundUploadPending = true;
+              unawaited(
+                _finishBackgroundSudoEditUpload(
+                  localPath: localPath,
+                  remotePath: remotePath,
+                  remoteDir: remoteDir,
                   password: pwd,
-                );
-                return true;
-              },
-            );
-            if (suc == null || err != null) return;
-            if (context.mounted) context.showSnackBar(libL10n.success);
-            await _listDir();
-            return;
-          }
-
-          if (!await ensureHostKeyAcceptedForSftp(context, widget.args.spi)) {
-            return;
-          }
-          ref
-              .read(sftpProvider.notifier)
-              .add(
-                SftpReq(
-                  widget.args.spi,
-                  remotePath,
-                  localPath,
-                  SftpReqType.upload,
                 ),
               );
-          context.showSnackBar(l10n.added2List);
-        },
-        closeAfterSave: Stores.setting.closeAfterSave.fetch(),
-        softWrap: Stores.setting.editorSoftWrap.fetch(),
-        enableHighlight: Stores.setting.editorHighlight.fetch(),
-        lightTheme: HighlightTheme.fromThemeMapKey(
-          Stores.setting.editorTheme.fetch(),
+              return;
+            }
+
+            final uploadCompleter = Completer<bool>();
+            ref
+                .read(sftpProvider.notifier)
+                .add(
+                  SftpReq(
+                    widget.args.spi,
+                    remotePath,
+                    localPath,
+                    SftpReqType.upload,
+                  ),
+                  completer: uploadCompleter,
+                );
+            backgroundUploadPending = true;
+            if (context.mounted) context.showSnackBar(l10n.added2List);
+            unawaited(
+              _finishBackgroundQueuedEditUpload(
+                completion: uploadCompleter.future,
+                localPath: localPath,
+                remotePath: remotePath,
+                remoteDir: remoteDir,
+              ),
+            );
+          },
+          closeAfterSave: true,
+          softWrap: Stores.setting.editorSoftWrap.fetch(),
+          enableHighlight: Stores.setting.editorHighlight.fetch(),
+          softWrapLabel: l10n.softWrap,
+          highlightLabel: l10n.highlight,
+          externalFileOpener: MethodChans.openFileExternally,
+          lightTheme: HighlightTheme.fromThemeMapKey(
+            Stores.setting.editorTheme.fetch(),
+          ),
+          darkTheme: HighlightTheme.fromThemeMapKey(
+            Stores.setting.editorDarkTheme.fetch(),
+          ),
+          fontFamily: () {
+            final font = Stores.setting.editorFontFamily.fetch();
+            return font.isEmpty ? null : font;
+          }(),
+          fontSize: Stores.setting.editorFontSize.fetch(),
         ),
-        darkTheme: HighlightTheme.fromThemeMapKey(
-          Stores.setting.editorDarkTheme.fetch(),
-        ),
-        fontFamily: () {
-          final font = Stores.setting.editorFontFamily.fetch();
-          return font.isEmpty ? null : font;
-        }(),
-      ),
-    );
+      );
+    } catch (_) {
+      preserveTemporaryCopy = true;
+      rethrow;
+    } finally {
+      if (!preserveTemporaryCopy && !backgroundUploadPending) {
+        await _deleteTemporaryEditFile(localPath);
+      }
+    }
   }
 
-  void _download(SftpName name) {
+  void _download(SftpName name, {bool popMenu = true}) {
+    if (popMenu) context.pop();
     context.showRoundDialog(
       title: libL10n.attention,
       child: Text('${l10n.dl2Local(name.filename)}\n${l10n.keepForeground}'),
@@ -730,7 +1229,6 @@ extension _Actions on _SftpPageState {
                   ),
                 );
 
-            context.pop();
           },
           child: Text(libL10n.download),
         ),
@@ -738,8 +1236,8 @@ extension _Actions on _SftpPageState {
     );
   }
 
-  void _delete(SftpName file) {
-    context.pop();
+  void _delete(SftpName file, {bool popMenu = true}) {
+    if (popMenu) context.pop();
     final isDir = file.attr.isDirectory;
     var useRmr = Stores.setting.sftpRmrDir.fetch();
 
@@ -810,8 +1308,9 @@ extension _Actions on _SftpPageState {
     required IconData icon,
     String? initialValue,
     required Future<bool> Function(String text) onConfirm,
+    bool popMenu = true,
   }) async {
-    context.pop();
+    if (popMenu) context.pop();
     final textController = TextEditingController(text: initialValue);
 
     void onSubmitted() async {
@@ -876,11 +1375,12 @@ extension _Actions on _SftpPageState {
     );
   }
 
-  void _rename(SftpName file) {
+  void _rename(SftpName file, {bool popMenu = true}) {
     _showSftpInputDialog(
       title: libL10n.rename,
       icon: Icons.abc,
       initialValue: file.filename,
+      popMenu: popMenu,
       onConfirm: (newName) async {
         return await _runWithSudoRetry(
           normal: () => _status.client!.rename(
@@ -897,8 +1397,8 @@ extension _Actions on _SftpPageState {
     );
   }
 
-  Future<void> _decompress(SftpName name) async {
-    context.pop();
+  Future<void> _decompress(SftpName name, {bool popMenu = true}) async {
+    if (popMenu) context.pop();
     final absPath = _getRemotePath(name);
     final cmd = _getDecompressCmd(absPath);
     if (cmd == null) {
@@ -937,6 +1437,84 @@ extension _Actions on _SftpPageState {
     );
   }
 
+  Future<void> _deleteTemporaryEditFile(String localPath) async {
+    try {
+      final file = File(localPath);
+      if (await file.exists()) await file.delete();
+
+      final cacheRoot = Directory(Paths.file).absolute.path;
+      var parent = file.parent.absolute;
+      while (parent.path != cacheRoot &&
+          parent.path.startsWith('$cacheRoot${Pfs.seperator}')) {
+        if (!await parent.list().isEmpty) break;
+        final next = parent.parent;
+        await parent.delete();
+        parent = next;
+      }
+    } catch (e, s) {
+      Loggers.app.warning('Failed to clean temporary SFTP edit file', e, s);
+    }
+  }
+
+  Future<void> _finishBackgroundQueuedEditUpload({
+    required Future<bool> completion,
+    required String localPath,
+    required String remotePath,
+    required String remoteDir,
+  }) async {
+    try {
+      final uploaded = await completion;
+      if (!uploaded) {
+        Loggers.app.warning(
+          'Background editor upload failed for $remotePath; '
+          'preserving $localPath',
+        );
+        return;
+      }
+      await _deleteTemporaryEditFile(localPath);
+      if (!mounted || _status.path.path != remoteDir) return;
+      await _listDir(null, true);
+    } catch (e, s) {
+      Loggers.app.warning(
+        'Background editor upload failed for $remotePath; '
+        'preserving $localPath',
+        e,
+        s,
+      );
+    }
+  }
+
+  Future<void> _finishBackgroundSudoEditUpload({
+    required String localPath,
+    required String remotePath,
+    required String remoteDir,
+    required String password,
+  }) async {
+    try {
+      await _sudoHelper.uploadTextFile(
+        localPath,
+        remotePath,
+        password: password,
+      );
+      await _deleteTemporaryEditFile(localPath);
+      await MethodChans.showToast(
+        '${libL10n.upload} ${libL10n.success} (1)',
+      );
+      if (!mounted || _status.path.path != remoteDir) return;
+      await _listDir(null, true);
+    } catch (e, s) {
+      Loggers.app.warning(
+        'Background sudo editor upload failed for $remotePath; '
+        'preserving $localPath',
+        e,
+        s,
+      );
+      await MethodChans.showToast(
+        '${libL10n.upload} ${libL10n.fail} (1/1)',
+      );
+    }
+  }
+
   String _safeLocalPathPart(String part) {
     if (part == '.' || part == '..') return '_';
     var safe = part.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_');
@@ -956,53 +1534,87 @@ extension _Actions on _SftpPageState {
     return sftpOperationTimeout(seconds);
   }
 
-  Future<bool?> _listDir([BuildContext? dialogContext]) async {
+  Future<bool?> _listDir([
+    BuildContext? dialogContext,
+    bool silent = false,
+  ]) async {
     if (dialogContext == null && !mounted) return false;
     final context = dialogContext ?? this.context;
     if (!context.mounted) return false;
+    _syncPathController();
 
-    final (ret, err) = await context.showLoadingDialog(
-      fn: () async {
-        final listPath = _status.path.path;
-        final fs = await _listDirWithFallback(listPath);
-        if (fs == null) {
-          return false;
-        }
-        fs.sort((a, b) => a.filename.compareTo(b.filename));
+    Future<bool> loadDirectory() async {
+      final listPath = _status.path.path;
+      final fs = await _listDirWithFallback(listPath);
+      if (fs == null) {
+        return false;
+      }
+      fs.sort((a, b) => a.filename.compareTo(b.filename));
 
-        /// Issue #97
-        /// In order to compatible with the Synology NAS
-        /// which not has '.' and '..' in listdir
-        if (fs.firstOrNull?.filename == '.') {
-          fs.removeAt(0);
+      /// Issue #97
+      /// In order to compatible with the Synology NAS
+      /// which not has '.' and '..' in listdir
+      if (fs.firstOrNull?.filename == '.') {
+        fs.removeAt(0);
+      }
+
+      if (fs.isNotEmpty &&
+          fs.firstOrNull?.filename == '..' &&
+          _status.path.path == '/') {
+        fs.removeAt(0);
+      }
+      if (_status.path.path != listPath) return false;
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _status.files
+            ..clear()
+            ..addAll(fs);
+          _selectedNames.removeWhere(
+            (name) => !fs.any((file) => file.filename == name),
+          );
+          _filesVersion++;
+          _sortedFilesCache = null;
+          _sortedFilesShowFoldersFirst = null;
+        });
+        _syncPaneController();
+
+        // Only update history when success
+        if (Stores.setting.sftpOpenLastPath.fetch()) {
+          final normalizedPath = _normalizeSftpPath(listPath);
+          Stores.history.sftpLastPath.put(widget.args.spi.id, normalizedPath);
         }
 
-        if (fs.isNotEmpty &&
-            fs.firstOrNull?.filename == '..' &&
-            _status.path.path == '/') {
-          fs.removeAt(0);
-        }
+        return true;
+      }
+      return false;
+    }
+
+    if (_isInitialLoading) {
+      try {
+        return await loadDirectory();
+      } catch (e, s) {
+        if (context.mounted) context.showErrDialog(e, s);
+        return false;
+      } finally {
         if (mounted) {
           // ignore: invalid_use_of_protected_member
-          setState(() {
-            _status.files
-              ..clear()
-              ..addAll(fs);
-            _filesVersion++;
-            _sortedFilesCache = null;
-            _sortedFilesShowFoldersFirst = null;
-          });
-
-          // Only update history when success
-          if (Stores.setting.sftpOpenLastPath.fetch()) {
-            final normalizedPath = _normalizeSftpPath(listPath);
-            Stores.history.sftpLastPath.put(widget.args.spi.id, normalizedPath);
-          }
-
-          return true;
+          setState(() => _isInitialLoading = false);
         }
+      }
+    }
+
+    if (silent) {
+      try {
+        return await loadDirectory();
+      } catch (e, s) {
+        Loggers.app.warning('Failed to refresh SFTP directory', e, s);
         return false;
-      },
+      }
+    }
+
+    final (ret, err) = await context.showLoadingDialog(
+      fn: loadDirectory,
       barrierDismiss: true,
     );
     return ret ?? err == null;
@@ -1058,7 +1670,9 @@ extension _Actions on _SftpPageState {
   }
 
   Future<void> _backward() async {
+    _pathFocusNode.unfocus();
     if (_status.path.undo()) {
+      _clearSelection();
       await _listDir();
     }
   }
@@ -1069,24 +1683,26 @@ extension _Actions on _SftpPageState {
 
   Widget _buildSearchBtn() {
     return Btn.icon(
-      onTap: () {
-        Stream<SftpName> find(String query) async* {
-          final fs = _status.files;
-          for (final f in fs) {
-            if (f.filename.contains(query)) yield f;
-          }
-        }
-
-        showSearch(
-          context: context,
-          delegate: SearchPage(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-            future: (q) => find(q).toList(),
-            builder: (ctx, e) => _buildItem(e, beforeTap: ctx.pop),
-          ),
-        );
-      },
+      onTap: _showFileSearch,
       icon: const Icon(Icons.search),
+    );
+  }
+
+  void _showFileSearch() {
+    Stream<SftpName> find(String query) async* {
+      final fs = _status.files;
+      for (final f in fs) {
+        if (f.filename.contains(query)) yield f;
+      }
+    }
+
+    showSearch(
+      context: context,
+      delegate: SearchPage(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        future: (q) => find(q).toList(),
+        builder: (ctx, e) => _buildItem(e, beforeTap: ctx.pop),
+      ),
     );
   }
 
@@ -1155,78 +1771,32 @@ extension _Actions on _SftpPageState {
           return;
         }
 
+        final completer = Completer<bool>();
         ref
             .read(sftpProvider.notifier)
             .add(
               SftpReq(widget.args.spi, remotePath, path, SftpReqType.upload),
+              completer: completer,
             );
+        unawaited(_refreshCurrentDirectoryAfter(completer.future, remoteDir));
       },
       icon: const Icon(Icons.upload_file),
     );
   }
 
-  Widget _buildAddBtn() {
-    return Btn.icon(
-      onTap: () => context.showRoundDialog(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Btn.tile(
-              icon: const Icon(Icons.folder),
-              text: libL10n.folder,
-              onTap: _mkdir,
-            ),
-            Btn.tile(
-              icon: const Icon(Icons.insert_drive_file),
-              text: libL10n.file,
-              onTap: _newFile,
-            ),
-          ],
-        ),
-      ),
-      icon: const Icon(Icons.add),
-    );
+  Future<void> _refreshCurrentDirectoryAfter(
+    Future<bool> completion,
+    String remoteDir,
+  ) async {
+    await completion;
+    if (!mounted || _status.path.path != remoteDir) return;
+    await _listDir(null, true);
   }
 
-  Widget _buildGotoBtn() {
+  Widget _buildAddBtn() {
     return Btn.icon(
-      onTap: () async {
-        final p = await context.showRoundDialog<String>(
-          title: l10n.goto,
-          child: Autocomplete<String>(
-            optionsBuilder: (val) {
-              if (!Stores.setting.recordHistory.fetch()) {
-                return [];
-              }
-              return Stores.history.sftpGoPath.all.cast<String>().where(
-                (e) => e.contains(val.text),
-              );
-            },
-            fieldViewBuilder: (_, controller, node, _) {
-              return Input(
-                autoFocus: true,
-                icon: Icons.abc,
-                label: libL10n.path,
-                node: node,
-                controller: controller,
-                suggestion: true,
-                onSubmitted: (value) => context.pop(value),
-              );
-            },
-          ),
-        );
-
-        if (p == null || p.isEmpty) {
-          return;
-        }
-
-        _status.path.path = p;
-        final suc = await _listDir() ?? false;
-        if (suc && Stores.setting.recordHistory.fetch()) {
-          Stores.history.sftpGoPath.add(p);
-        }
-      },
-      icon: const Icon(Icons.gps_fixed),
+      onTap: _showAddDialog,
+      icon: const Icon(Icons.add),
     );
   }
 
@@ -1236,12 +1806,48 @@ extension _Actions on _SftpPageState {
 
   Widget _buildHomeBtn() {
     return IconButton(
-      onPressed: () {
-        final user = widget.args.spi.user;
-        _status.path.path = user != 'root' ? '/home/$user' : '/root';
-        _listDir();
-      },
+      onPressed: _goHome,
       icon: const Icon(Icons.home),
     );
+  }
+
+  void _syncPathController() {
+    final path = _status.path.path;
+    if (_pathController.text == path) return;
+    _pathController.value = TextEditingValue(
+      text: path,
+      selection: TextSelection.collapsed(offset: path.length),
+    );
+  }
+
+  Future<void> _openPathFromEditor(String rawPath) async {
+    _pathFocusNode.unfocus();
+    final path = _normalizeSftpPath(rawPath.trim());
+    if (path.isEmpty) {
+      _syncPathController();
+      return;
+    }
+
+    final oldPath = _status.path.path;
+    if (path != oldPath) {
+      _clearSelection();
+      _status.path.path = path;
+      _syncPathController();
+    }
+
+    final success = await _listDir() ?? false;
+    if (!success && path != oldPath) {
+      _status.path.undo();
+      _syncPathController();
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {});
+      }
+      return;
+    }
+
+    if (success && Stores.setting.recordHistory.fetch()) {
+      Stores.history.sftpGoPath.add(_status.path.path);
+    }
   }
 }

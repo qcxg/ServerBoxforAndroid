@@ -128,8 +128,6 @@ class SettingStore extends HiveStore {
     isIOS,
   );
 
-  late final autoCheckAppUpdate = propertyDefault('autoCheckAppUpdate', true);
-
   /// Display server tab function buttons on the bottom of each server card if [true]
   ///
   /// Otherwise, display them on the top of server detail page
@@ -159,6 +157,9 @@ class SettingStore extends HiveStore {
 
   /// Open SFTP with last viewed path
   late final sftpOpenLastPath = propertyDefault('sftpOpenLastPath', true);
+
+  /// Keep the Files workspace on the server selected in SSH.
+  late final sshSftpLink = propertyDefault('sshSftpLink', true);
 
   /// Show folders first in SFTP file browser
   late final sftpShowFoldersFirst = propertyDefault(
@@ -244,8 +245,6 @@ class SettingStore extends HiveStore {
 
   /// fmt: https://example.com/{DIST}-{BRIGHT}.png
   late final serverLogoUrl = propertyDefault('serverLogoUrl', '');
-
-  late final betaTest = propertyDefault('betaTest', false);
 
   /// For desktop only.
   /// Record the position and size of the window.

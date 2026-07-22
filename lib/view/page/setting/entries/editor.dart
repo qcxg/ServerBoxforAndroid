@@ -23,7 +23,7 @@ extension _Editor on _AppSettingsPageState {
         _buildEditorDarkTheme(),
         _buildEditorHighlight(),
         _buildEditorCloseAfterEdit(),
-      ].map((e) => CardX(child: e)).toList(),
+      ],
     );
   }
 

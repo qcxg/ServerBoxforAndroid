@@ -132,16 +132,9 @@ abstract final class TermSessionManager {
   static Future<void> _sync() async {
     // Android: update foreground service notifications
     if (isAndroid) {
-      final isRunning = await MethodChans.isServiceRunning();
       if (_entries.isEmpty) {
-        if (isRunning) {
-          MethodChans.stopService();
-        }
-        await MethodChans.updateSessions(jsonEncode({'sessions': []}));
+        await MethodChans.stopService();
       } else {
-        if (!isRunning) {
-          MethodChans.startService();
-        }
         final payload = jsonEncode({
           'sessions': _entries.values.map((e) => e.info.toJson()).toList(),
         });

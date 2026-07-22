@@ -63,8 +63,6 @@ Future<void> _initData() async {
   // DO DB migration before load any provider.
   await _doDbMigrate();
 
-  if (Stores.setting.betaTest.fetch()) AppUpdate.chan = AppUpdateChan.beta;
-
   FontUtils.loadFrom(Stores.setting.fontPath.fetch());
 }
 

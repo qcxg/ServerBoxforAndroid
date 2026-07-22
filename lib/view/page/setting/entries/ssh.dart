@@ -26,7 +26,7 @@ extension _SSH on _AppSettingsPageState {
         _buildSSHVirtualKeyAutoOff(),
         if (isMobile) _buildSSHVirtKeys(),
         _buildTmuxAuto(),
-      ].map((e) => CardX(child: e)).toList(),
+      ],
     );
   }
 

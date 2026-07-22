@@ -53,6 +53,8 @@ class HistoryStore extends HiveStore {
 
   late final sftpLastPath = _MapHistory(box: box, name: 'sftpLastPath');
 
+  late final localLastPath = _MapHistory(box: box, name: 'localLastPath');
+
   late final sshServerHistory = _ListHistory(
     box: box,
     name: 'sshServerHistory',

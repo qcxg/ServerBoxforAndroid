@@ -64,7 +64,7 @@ extension _AI on _AppSettingsPageState {
               val?.isNotEmpty == true ? l10n.configured : libL10n.empty,
         ),
       ],
-    ).cardx;
+    );
   }
 
   Future<void> _showAskAiFieldDialog({

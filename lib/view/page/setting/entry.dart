@@ -5,6 +5,7 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:fl_lib/fl_lib.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_highlight/theme_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:icons_plus/icons_plus.dart';
@@ -75,47 +76,81 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: CustomAppBar(
-        title: Text(libL10n.setting, style: const TextStyle(fontSize: 20)),
-        bottom: TabBar(
-          controller: _tabCtrl,
-          dividerHeight: 0,
-          tabAlignment: TabAlignment.center,
-          isScrollable: true,
-          tabs: SettingsTabs.values
-              .map((e) => Tab(text: e.i18n))
-              .toList(growable: false),
+        centerTitle: false,
+        title: Text(
+          libL10n.setting,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.25,
+          ),
         ),
-        actions: [
-          Btn.text(
-            text: context.libL10n.logs,
-            onTap: () => DebugPage.route.go(
-              context,
-              args: DebugPageArgs(
-                title: '${context.libL10n.logs}(${BuildData.build})',
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(54),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                color: scheme.surfaceContainerHigh,
+                shape: const StadiumBorder(),
+              ),
+              child: TabBar(
+                controller: _tabCtrl,
+                dividerHeight: 0,
+                tabAlignment: TabAlignment.center,
+                isScrollable: true,
+                splashFactory: NoSplash.splashFactory,
+                overlayColor: const WidgetStatePropertyAll(
+                  Colors.transparent,
+                ),
+                labelColor: scheme.onSecondaryContainer,
+                unselectedLabelColor: scheme.onSurfaceVariant,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: ShapeDecoration(
+                  color: scheme.secondaryContainer,
+                  shape: const StadiumBorder(),
+                ),
+                tabs: SettingsTabs.values
+                    .map(
+                      (e) => SizedBox(
+                        height: 40,
+                        child: Center(child: Text(e.i18n)),
+                      ),
+                    )
+                    .toList(growable: false),
               ),
             ),
           ),
-          Btn.icon(
-            icon: const Icon(Icons.delete),
-            onTap: () => context.showRoundDialog(
-              title: libL10n.attention,
-              child: SimpleMarkdown(
-                data: libL10n.askContinue(
-                  '${libL10n.delete} **${libL10n.all}** ${libL10n.setting}',
+        ),
+        actions: [
+          PopupMenuButton<_SettingsMenuAction>(
+            tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: _onMenuAction,
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: _SettingsMenuAction.logs,
+                child: ListTile(
+                  leading: const Icon(Icons.receipt_long_rounded),
+                  title: Text(context.libL10n.logs),
                 ),
               ),
-              actions: [
-                CountDownBtn(
-                  onTap: () {
-                    context.pop();
-                    _clearAllSettings();
-                  },
-                  afterColor: Colors.red,
+              PopupMenuItem(
+                value: _SettingsMenuAction.reset,
+                child: ListTile(
+                  leading: Icon(
+                    Icons.delete_sweep_rounded,
+                    color: scheme.error,
+                  ),
+                  title: Text(
+                    '${libL10n.delete} ${libL10n.all}',
+                    style: TextStyle(color: scheme.error),
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -124,7 +159,39 @@ class _SettingsPageState extends ConsumerState<SettingsPage>
       ),
     );
   }
+
+  void _onMenuAction(_SettingsMenuAction action) {
+    switch (action) {
+      case _SettingsMenuAction.logs:
+        DebugPage.route.go(
+          context,
+          args: DebugPageArgs(
+            title: '${context.libL10n.logs}(${BuildData.build})',
+          ),
+        );
+      case _SettingsMenuAction.reset:
+        context.showRoundDialog(
+          title: libL10n.attention,
+          child: SimpleMarkdown(
+            data: libL10n.askContinue(
+              '${libL10n.delete} **${libL10n.all}** ${libL10n.setting}',
+            ),
+          ),
+          actions: [
+            CountDownBtn(
+              onTap: () {
+                context.pop();
+                _clearAllSettings();
+              },
+              afterColor: Colors.red,
+            ),
+          ],
+        );
+    }
+  }
 }
+
+enum _SettingsMenuAction { logs, reset }
 
 final class AppSettingsPage extends ConsumerStatefulWidget {
   const AppSettingsPage({super.key});
@@ -160,32 +227,63 @@ final class _AppSettingsPageState extends ConsumerState<AppSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return MultiList(
-      children: [
-        [
-          CenterGreyTitle(libL10n.app),
-          _buildApp(),
-          CenterGreyTitle(l10n.ai),
-          _buildAskAiConfig(),
-        ],
-        [CenterGreyTitle(libL10n.server), _buildServer()],
-        [
-          CenterGreyTitle(l10n.ssh),
-          _buildSSH(),
-          CenterGreyTitle(l10n.sftp),
-          _buildSFTP(),
-        ],
-        [
-          CenterGreyTitle(libL10n.container),
-          _buildContainer(),
-          CenterGreyTitle(libL10n.editor),
-          _buildEditor(),
-        ],
+    final sections = <_SettingsSectionSpec>[
+      _SettingsSectionSpec(
+        title: libL10n.app,
+        icon: Icons.tune_rounded,
+        bodyBuilder: (_) => _buildApp(),
+        initiallyExpanded: true,
+      ),
+      _SettingsSectionSpec(
+        title: l10n.ai,
+        icon: Icons.auto_awesome_rounded,
+        bodyBuilder: (_) => _buildAskAiConfig(),
+      ),
+      _SettingsSectionSpec(
+        title: libL10n.server,
+        icon: Icons.dns_rounded,
+        bodyBuilder: (_) => _buildServer(),
+      ),
+      _SettingsSectionSpec(
+        title: l10n.ssh,
+        icon: Icons.terminal_rounded,
+        bodyBuilder: (_) => _buildSSH(),
+      ),
+      _SettingsSectionSpec(
+        title: l10n.sftp,
+        icon: Icons.folder_open_rounded,
+        bodyBuilder: (_) => _buildSFTP(),
+      ),
+      _SettingsSectionSpec(
+        title: libL10n.editor,
+        icon: Icons.edit_note_rounded,
+        bodyBuilder: (_) => _buildEditor(),
+      ),
+      _SettingsSectionSpec(
+        title: libL10n.container,
+        icon: Icons.inventory_2_rounded,
+        bodyBuilder: (_) => _buildContainer(),
+      ),
+      if (isMobile)
+        _SettingsSectionSpec(
+          title: l10n.fullScreen,
+          icon: Icons.fullscreen_rounded,
+          bodyBuilder: (_) => _buildFullScreen(),
+        ),
+    ];
 
-        /// Fullscreen Mode is designed for old mobile phone which can be
-        /// used as a status screen.
-        if (isMobile) [CenterGreyTitle(l10n.fullScreen), _buildFullScreen()],
-      ],
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 28),
+      scrollCacheExtent: const ScrollCacheExtent.pixels(240),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      itemCount: sections.length,
+      itemBuilder: (context, index) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: _SettingsSection(
+          spec: sections[index],
+          toneIndex: index,
+        ),
+      ),
     );
   }
 
@@ -221,6 +319,105 @@ final class _AppSettingsPageState extends ConsumerState<AppSettingsPage> {
           actions: Btn.ok(onTap: save).toList,
         );
       }),
+    );
+  }
+}
+
+final class _SettingsSectionSpec {
+  const _SettingsSectionSpec({
+    required this.title,
+    required this.icon,
+    required this.bodyBuilder,
+    this.initiallyExpanded = false,
+  });
+
+  final String title;
+  final IconData icon;
+  final WidgetBuilder bodyBuilder;
+  final bool initiallyExpanded;
+}
+
+final class _SettingsSection extends StatelessWidget {
+  const _SettingsSection({required this.spec, required this.toneIndex});
+
+  final _SettingsSectionSpec spec;
+  final int toneIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final accent = switch (toneIndex % 3) {
+      1 => scheme.tertiary,
+      2 => scheme.secondary,
+      _ => scheme.primary,
+    };
+    final shape = RoundedSuperellipseBorder(
+      borderRadius: const BorderRadius.all(Radius.circular(26)),
+      side: BorderSide(color: scheme.outlineVariant.withAlpha(46)),
+    );
+
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        color: Color.alphaBlend(
+          accent.withAlpha(theme.brightness == Brightness.dark ? 12 : 7),
+          scheme.surfaceContainerLow,
+        ),
+        shape: shape,
+        shadows: [
+          BoxShadow(
+            color: scheme.shadow.withAlpha(6),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: ExpansionTile(
+          initiallyExpanded: spec.initiallyExpanded,
+          maintainState: false,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+          childrenPadding: const EdgeInsets.fromLTRB(5, 0, 5, 8),
+          backgroundColor: Colors.transparent,
+          collapsedBackgroundColor: Colors.transparent,
+          shape: const Border(),
+          collapsedShape: const Border(),
+          leading: DecoratedBox(
+            decoration: ShapeDecoration(
+              color: accent.withAlpha(
+                theme.brightness == Brightness.dark ? 34 : 22,
+              ),
+              shape: const RoundedSuperellipseBorder(
+                borderRadius: BorderRadius.all(Radius.circular(15)),
+              ),
+            ),
+            child: SizedBox.square(
+              dimension: 42,
+              child: Icon(spec.icon, color: accent, size: 22),
+            ),
+          ),
+          title: Text(
+            spec.title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          children: [
+            Divider(
+              height: 1,
+              indent: 12,
+              endIndent: 12,
+              color: scheme.outlineVariant.withAlpha(55),
+            ),
+            RepaintBoundary(
+              child: Builder(builder: spec.bodyBuilder),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -9,11 +9,16 @@ import 'package:icons_plus/icons_plus.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:server_box/core/extension/context/locale.dart';
 import 'package:server_box/core/route.dart';
+import 'package:server_box/data/model/server/server.dart';
 import 'package:server_box/data/model/server/server_private_info.dart';
 import 'package:server_box/data/provider/server/all.dart';
+import 'package:server_box/data/provider/server/single.dart';
 import 'package:server_box/data/res/store.dart';
+import 'package:server_box/data/ssh/session_manager.dart';
+import 'package:server_box/data/ssh/ssh_sftp_link.dart';
 import 'package:server_box/view/page/server/edit/edit.dart';
 import 'package:server_box/view/page/ssh/page/page.dart';
+import 'package:server_box/view/widget/ssh_connection_status.dart';
 
 class SSHTabPage extends ConsumerStatefulWidget {
   const SSHTabPage({super.key});
@@ -31,6 +36,7 @@ typedef _TabMap =
         Widget page,
         FocusNode? focus,
         ValueNotifier<bool>? visible,
+        ValueNotifier<TermSessionStatus>? status,
         GlobalKey<SSHPageState>? sshPageKey,
       })
     >;
@@ -109,6 +115,7 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
       ),
       focus: null,
       visible: null,
+      status: null,
       sshPageKey: null,
     ),
   };
@@ -135,6 +142,7 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    final isMobile = ResponsiveBreakpoints.of(context).isMobile;
     return Scaffold(
       appBar: PreferredSizeListenBuilder(
         listenable: _tabRN,
@@ -152,17 +160,21 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
         },
       ),
       body: _buildBody(),
-      floatingActionButton: ValBuilder(
-        listenable: _fabVN,
-        builder: (idx) {
-          if (idx != 0) return const SizedBox();
-          return FloatingActionButton(
-            heroTag: 'sshAddServer',
-            onPressed: () => ServerEditPage.route.go(context),
-            tooltip: libL10n.add,
-            child: const Icon(Icons.add),
-          );
-        },
+      floatingActionButton: Padding(
+        padding: EdgeInsets.only(bottom: isMobile ? 80 : 0),
+        child: ValBuilder(
+          listenable: _fabVN,
+          builder: (idx) {
+            if (idx != 0) return const SizedBox();
+            return FloatingActionButton.extended(
+              heroTag: 'sshAddServer',
+              onPressed: () => ServerEditPage.route.go(context),
+              tooltip: libL10n.add,
+              icon: const Icon(Icons.add_rounded),
+              label: Text(libL10n.add),
+            );
+          },
+        ),
       ),
     );
   }
@@ -205,18 +217,21 @@ extension on _SSHTabPageState {
       Widget page,
       FocusNode? focus,
       ValueNotifier<bool>? visible,
+      ValueNotifier<TermSessionStatus>? status,
       GlobalKey<SSHPageState>? sshPageKey,
     })
     entry,
   ) {
     entry.focus?.dispose();
     entry.visible?.dispose();
+    entry.status?.dispose();
   }
 
   ({
     Widget page,
     FocusNode? focus,
     ValueNotifier<bool>? visible,
+    ValueNotifier<TermSessionStatus>? status,
     GlobalKey<SSHPageState>? sshPageKey,
   })?
   _detachTabEntry(String name) {
@@ -228,6 +243,7 @@ extension on _SSHTabPageState {
       Widget page,
       FocusNode? focus,
       ValueNotifier<bool>? visible,
+      ValueNotifier<TermSessionStatus>? status,
       GlobalKey<SSHPageState>? sshPageKey,
     })?
     entry,
@@ -290,6 +306,7 @@ extension on _SSHTabPageState {
     final key = GlobalKey<SSHPageState>(debugLabel: name);
     final focusNode = FocusNode();
     final visibleVN = ValueNotifier(false);
+    final statusVN = ValueNotifier(TermSessionStatus.connecting);
     final args = SshPageArgs(
       spi: spi,
       notFromTab: false,
@@ -298,6 +315,7 @@ extension on _SSHTabPageState {
       },
       focusNode: focusNode,
       visibleListenable: visibleVN,
+      connectionStatus: statusVN,
       tmuxSession: tmuxSession,
       tmuxWindow: tmuxWindow,
       onTmuxStateChanged: _saveTabsState,
@@ -309,6 +327,7 @@ extension on _SSHTabPageState {
       ),
       focus: focusNode,
       visible: visibleVN,
+      status: statusVN,
       sshPageKey: key,
     );
     _tabRN.notify();
@@ -356,6 +375,12 @@ extension on _SSHTabPageState {
     final focus = _tabMap.values.elementAt(idx).focus;
     if (focus != null) {
       FocusScope.of(context).requestFocus(focus);
+    }
+    if (idx > 0) {
+      final page = _tabMap.values.elementAt(idx).page;
+      if (page is SSHPage) {
+        sshSftpLink.selectServer(page.args.spi.id);
+      }
     }
   }
 
@@ -677,20 +702,19 @@ final class _TabBar extends StatelessWidget implements PreferredSizeWidget {
 
   Widget _buildItem(BuildContext context, int idx) {
     final isMobile = ResponsiveBreakpoints.of(context).isMobile;
-    final wideWidth = isMobile ? 90.0 : 130.0;
-    final narrowWidth = isMobile ? 60.0 : 90.0;
+    final wideWidth = isMobile ? 132.0 : 172.0;
+    final narrowWidth = isMobile ? 78.0 : 108.0;
     final name = names[idx];
     final selected = idxVN.value == idx;
     final color = selected ? null : Colors.grey;
+    final status = map[name]!.status!;
 
-    final text = Text(
-      name,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(color: color),
-      softWrap: false,
-      textAlign: TextAlign.right,
-      textWidthBasis: TextWidthBasis.parent,
+    final title = SshConnectionTitle(
+      title: name,
+      statusListenable: status,
+      showStatusText: selected,
+      compact: true,
+      foregroundColor: color,
     );
     final Widget btn;
     if (selected) {
@@ -702,11 +726,12 @@ final class _TabBar extends StatelessWidget implements PreferredSizeWidget {
             onTap: () => onClose(name),
             padding: null,
           ),
-          Expanded(child: text),
+          const SizedBox(width: 4),
+          Expanded(child: title),
         ],
       );
     } else {
-      btn = Center(child: text);
+      btn = Center(child: title);
     }
     final child = AnimatedContainer(
       width: selected ? wideWidth : narrowWidth,
@@ -818,110 +843,268 @@ class _AddPageState extends ConsumerState<_AddPage> {
     return order;
   }
 
-  Widget get _placeholder => const Expanded(child: UIs.placeholder);
-
   @override
   Widget build(BuildContext context) {
-    const viewPadding = 7.0;
     final isMobile = ResponsiveBreakpoints.of(context).isMobile;
-
     final serverState = ref.watch(serversProvider);
     final sortBy = Stores.setting.sshPageSortBy.fetch();
     final sortAsc = Stores.setting.sshPageSortAsc.fetch();
-
     final order = _getSortedOrder(serverState, sortBy, sortAsc);
-
-    final itemCount = order.length;
-    const itemPadding = 1.0;
-    final isDesktopWide = !isMobile;
-    const desktopMinItemWidth = 280.0;
-    const desktopMaxItemWidth = 320.0;
-
-    if (order.isEmpty) {
-      return Center(child: Text(libL10n.empty, textAlign: TextAlign.center));
-    }
 
     return LayoutBuilder(
       builder: (_, cons) {
-        final availableWidth = max(cons.maxWidth - 2 * viewPadding, 0.0);
-        final canUseTwoColumns =
-            availableWidth >= 2 * (desktopMinItemWidth + itemPadding);
-        final crossCount = isDesktopWide
-            ? max(
-                availableWidth ~/ (desktopMinItemWidth + itemPadding),
-                canUseTwoColumns ? 2 : 1,
-              )
-            : 1;
-        final mainCount = (itemCount + crossCount - 1) ~/ crossCount;
-        final desktopItemWidth = isDesktopWide
-            ? max(
-                0.0,
-                min(
-                  desktopMaxItemWidth,
-                  (availableWidth - crossCount * itemPadding * 2) / crossCount,
+        final crossCount = isMobile
+            ? 1
+            : max(1, (cons.maxWidth / 360).floor());
+        return CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: _SshSelectorHeader(serverCount: order.length),
+            ),
+            if (order.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _SshEmptyState(
+                  onAdd: () => ServerEditPage.route.go(context),
                 ),
               )
-            : null;
-
-        return ListView(
-          padding: const EdgeInsets.all(viewPadding),
-          children: List.generate(
-            mainCount,
-            (rowIndex) => Row(
-              mainAxisAlignment: isDesktopWide
-                  ? MainAxisAlignment.center
-                  : MainAxisAlignment.start,
-              children: List.generate(crossCount, (columnIndex) {
-                final idx = rowIndex * crossCount + columnIndex;
-                final id = order.elementAtOrNull(idx);
-                final spi = serverState.servers[id];
-                if (spi == null) {
-                  return isDesktopWide
-                      ? SizedBox(width: desktopItemWidth)
-                      : _placeholder;
-                }
-
-                final child = Padding(
-                  padding: const EdgeInsets.all(itemPadding),
-                  child: InkWell(
-                    onTap: () => widget.onTapInitCard(spi),
-                    onLongPress: () => widget.onLongPressInitCard(spi),
-                    child: Container(
-                      alignment: Alignment.centerLeft,
-                      constraints: BoxConstraints(
-                        minHeight: isDesktopWide ? 58.0 : 50.0,
-                      ),
-                      padding: const EdgeInsets.only(left: 17, right: 7),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              spi.name,
-                              style: UIs.text18,
-                              maxLines: isDesktopWide ? null : 2,
-                              overflow: isDesktopWide
-                                  ? null
-                                  : TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right),
-                        ],
-                      ),
-                    ),
-                  ).cardx,
-                );
-
-                if (isDesktopWide) {
-                  return SizedBox(width: desktopItemWidth, child: child);
-                }
-
-                return Expanded(child: child);
-              }),
-            ),
-          ),
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                sliver: SliverGrid.builder(
+                  itemCount: order.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossCount,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    mainAxisExtent: 112,
+                  ),
+                  itemBuilder: (_, index) {
+                    final spi = serverState.servers[order[index]];
+                    if (spi == null) return UIs.placeholder;
+                    return _SshServerCard(
+                      spi: spi,
+                      onTap: () => widget.onTapInitCard(spi),
+                      onLongPress: () => widget.onLongPressInitCard(spi),
+                    );
+                  },
+                ),
+              ),
+          ],
         );
       },
+    );
+  }
+}
+
+final class _SshSelectorHeader extends StatelessWidget {
+  const _SshSelectorHeader({required this.serverCount});
+
+  final int serverCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.ssh,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.7,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$serverCount ${serverCount == 1 ? libL10n.server : libL10n.servers}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            width: 58,
+            height: 58,
+            decoration: ShapeDecoration(
+              color: scheme.tertiaryContainer,
+              shape: const RoundedSuperellipseBorder(
+                borderRadius: BorderRadius.all(Radius.circular(20)),
+              ),
+            ),
+            child: Icon(
+              Icons.terminal_rounded,
+              color: scheme.onTertiaryContainer,
+              size: 29,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+final class _SshServerCard extends ConsumerWidget {
+  const _SshServerCard({
+    required this.spi,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final Spi spi;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final conn = ref.watch(
+      serverProvider(spi.id).select((value) => value.conn),
+    );
+    final statusColor = switch (conn) {
+      ServerConn.failed => scheme.error,
+      ServerConn.disconnected => scheme.outline,
+      ServerConn.connecting => Colors.orange,
+      ServerConn.connected || ServerConn.loading || ServerConn.finished =>
+        theme.brightness == Brightness.dark
+            ? Colors.greenAccent.shade400
+            : Colors.green.shade600,
+    };
+    const shape = RoundedSuperellipseBorder(
+      borderRadius: BorderRadius.all(Radius.circular(26)),
+    );
+
+    return Card.filled(
+      margin: EdgeInsets.zero,
+      color: scheme.surfaceContainerLow,
+      shape: shape,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        customBorder: shape,
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 54,
+                    height: 54,
+                    decoration: ShapeDecoration(
+                      color: scheme.secondaryContainer,
+                      shape: const RoundedSuperellipseBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(18)),
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.dns_rounded,
+                      color: scheme.onSecondaryContainer,
+                    ),
+                  ),
+                  Positioned(
+                    right: -2,
+                    bottom: -2,
+                    child: Container(
+                      width: 15,
+                      height: 15,
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: scheme.surfaceContainerLow,
+                          width: 3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      spi.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      spi.oldId,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.arrow_forward_rounded,
+                  color: scheme.onPrimaryContainer,
+                  size: 19,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class _SshEmptyState extends StatelessWidget {
+  const _SshEmptyState({required this.onAdd});
+
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.dns_outlined, size: 52, color: scheme.primary),
+            const SizedBox(height: 12),
+            Text(libL10n.empty, textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            FilledButton.tonalIcon(
+              onPressed: onAdd,
+              icon: const Icon(Icons.add_rounded),
+              label: Text(libL10n.add),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

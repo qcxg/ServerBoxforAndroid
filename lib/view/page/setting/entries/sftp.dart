@@ -5,10 +5,19 @@ extension _SFTP on _AppSettingsPageState {
     return Column(
       children: [
         _buildSftpEditor(),
+        _buildSshSftpLink(),
         _buildSftpRmrDir(),
         _buildSftpOpenLastPath(),
         _buildSftpShowFoldersFirst(),
-      ].map((e) => CardX(child: e)).toList(),
+      ],
+    );
+  }
+
+  Widget _buildSshSftpLink() {
+    return ListTile(
+      leading: const Icon(Icons.link_rounded),
+      title: TipText(l10n.sshSftpLink, l10n.sshSftpLinkTip),
+      trailing: StoreSwitch(prop: _setting.sshSftpLink),
     );
   }
 

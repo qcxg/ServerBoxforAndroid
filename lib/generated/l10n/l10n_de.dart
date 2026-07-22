@@ -660,6 +660,13 @@ class AppLocalizationsDe extends AppLocalizations {
   String get sftpShowFoldersFirst => 'Ordner zuerst anzeigen';
 
   @override
+  String get sshSftpLink => 'Link SSH and SFTP';
+
+  @override
+  String get sshSftpLinkTip =>
+      'Opening or switching an SSH connection automatically opens the same server in Files.';
+
+  @override
   String get size => 'Größe';
 
   @override
@@ -975,4 +982,80 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get systemd => 'Systemd';
+
+  @override
+  String get sshCommandBuffer => 'Command buffer';
+
+  @override
+  String get sshCommandBufferHint =>
+      'Local only; enter one command per line. Use send all for multiline shell constructs.';
+
+  @override
+  String get sshDirectInput => 'Direct input mode';
+
+  @override
+  String get sshSendAllAtOnce => 'Send all';
+
+  @override
+  String get sshSendLineByLine => 'Line by line';
+
+  @override
+  String get sshSend => 'Send';
+
+  @override
+  String get sshConnecting => 'Connecting';
+
+  @override
+  String get sshConnected => 'Connected';
+
+  @override
+  String get sshConnectionLost => 'Connection lost';
+
+  @override
+  String get sshSendAllHelp =>
+      'Single line runs with Enter; multiline shell blocks are sent together.';
+
+  @override
+  String get sshSendLineByLineHelp =>
+      'Each non-empty line runs separately in order.';
+
+  @override
+  String get exitBackgroundDescription =>
+      'This stops every SSH session, server monitor, port forward, and file transfer before closing ServerBox.';
+
+  @override
+  String get stopAndExit => 'Stop and exit';
+
+  @override
+  String get snippetLibraryDescription => 'Reusable commands';
+
+  @override
+  String get snippetNoMatch =>
+      'No snippets match the current search or filters.';
+
+  @override
+  String get snippetCopySuffix => 'copy';
+
+  @override
+  String get snippetDuplicate => 'Duplicate';
+
+  @override
+  String get snippetInsertVariable => 'Insert a variable or control key';
+
+  @override
+  String get snippetAutoRunDescription =>
+      'Optionally run this snippet after selected servers connect.';
+
+  @override
+  String get snippetUnsavedTitle => 'Unsaved snippet';
+
+  @override
+  String get snippetUnsavedDescription =>
+      'Discard the changes made to this snippet?';
+
+  @override
+  String get snippetDiscard => 'Discard';
+
+  @override
+  String get snippetNameExists => 'A snippet with this name already exists.';
 }

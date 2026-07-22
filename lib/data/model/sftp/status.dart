@@ -9,7 +9,7 @@ class SftpReqStatus {
   final SftpReq req;
   final void Function() notifyListeners;
   late SftpWorker worker;
-  final Completer? completer;
+  final Completer<bool>? completer;
 
   String get fileName => req.localPath.split(Pfs.seperator).last;
 
@@ -45,7 +45,9 @@ class SftpReqStatus {
     _disposed = true;
     worker.dispose();
     if (completer?.isCompleted == false) {
-      completer?.complete(true);
+      completer?.complete(
+        error == null && status == SftpWorkerStatus.finished,
+      );
     }
   }
 

@@ -9,6 +9,7 @@ class LocalPath {
   String _path = _seperator;
   String? _prePath;
   String get path => _prefixPath + _path;
+  String get root => '$_prefixPath$_seperator';
 
   LocalPath(String prefixPath) : _prefixPath = _trimSuffix(prefixPath);
 
@@ -26,6 +27,27 @@ class LocalPath {
       return;
     }
     _path = _path.joinPath(newPath);
+  }
+
+  bool setAbsolute(String newPath) {
+    final normalized = _trimSuffix(newPath.trim());
+    final rootWithoutSuffix = _trimSuffix(root);
+    final comparePath = isWindows ? normalized.toLowerCase() : normalized;
+    final compareRoot = isWindows
+        ? rootWithoutSuffix.toLowerCase()
+        : rootWithoutSuffix;
+    if (comparePath != compareRoot &&
+        !comparePath.startsWith('$compareRoot$_seperator')) {
+      return false;
+    }
+
+    _prePath = _path;
+    final relative = normalized.substring(rootWithoutSuffix.length);
+    _path = relative.isEmpty ? _seperator : relative;
+    if (!_path.startsWith(_seperator)) {
+      _path = '$_seperator$_path';
+    }
+    return true;
   }
 
   bool get canBack => path != '$_prefixPath$_seperator';

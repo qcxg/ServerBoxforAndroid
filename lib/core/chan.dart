@@ -7,15 +7,81 @@ abstract final class MethodChans {
   static const _channel = MethodChannel('${Miscs.pkgName}/main_chan');
 
   /// Issue #662
-  static void startService() {
-    if (Stores.setting.fgService.fetch() != true) return;
-    _channel.invokeMethod('startService');
+  static Future<void> startService() async {
+    if (!isAndroid) return;
+    try {
+      await _channel.invokeMethod('startService');
+    } catch (e, s) {
+      Loggers.app.warning('Failed to start Android SSH service', e, s);
+    }
   }
 
   /// Issue #662
-  static void stopService() {
-    if (Stores.setting.fgService.fetch() != true) return;
-    _channel.invokeMethod('stopService');
+  static Future<void> stopService() async {
+    if (!isAndroid) return;
+    try {
+      await _channel.invokeMethod('stopService');
+    } catch (e, s) {
+      Loggers.app.warning('Failed to stop Android SSH service', e, s);
+    }
+  }
+
+  /// Show a short Android system toast even when the Flutter route displaying
+  /// the transfer list is not visible.
+  static Future<void> showToast(String message) async {
+    if (!isAndroid || message.isEmpty) return;
+    try {
+      await _channel.invokeMethod('showToast', message);
+    } catch (e, s) {
+      Loggers.app.warning('Failed to show Android toast', e, s);
+    }
+  }
+
+  static Future<bool> hasStorageAccess() async {
+    if (!isAndroid) return true;
+    try {
+      return await _channel.invokeMethod<bool>('hasStorageAccess') ?? false;
+    } catch (e, s) {
+      Loggers.app.warning('Failed to query Android storage access', e, s);
+      return false;
+    }
+  }
+
+  static Future<void> requestStorageAccess() async {
+    if (!isAndroid) return;
+    try {
+      await _channel.invokeMethod('requestStorageAccess');
+    } catch (e, s) {
+      Loggers.app.warning('Failed to request Android storage access', e, s);
+    }
+  }
+
+  /// Open a local file through Android's ACTION_VIEW chooser. The native side
+  /// exposes a scoped FileProvider URI so internal SFTP edit copies are safe to
+  /// hand to another editor without using file:// URIs.
+  static Future<bool> openFileExternally(String path) async {
+    if (!isAndroid || path.isEmpty) return false;
+    try {
+      return await _channel.invokeMethod<bool>(
+            'openFileExternally',
+            {'path': path},
+          ) ??
+          false;
+    } catch (e, s) {
+      Loggers.app.warning('Failed to open file externally', e, s);
+      return false;
+    }
+  }
+
+  /// Stop the Android foreground service, remove the task from Recents, and
+  /// terminate the app process after Flutter has closed its connections.
+  static Future<void> exitApp() async {
+    if (!isAndroid) return;
+    try {
+      await _channel.invokeMethod('exitApp');
+    } catch (e, s) {
+      Loggers.app.warning('Failed to fully exit Android app', e, s);
+    }
   }
 
   static Future<void> updateHomeWidget() async {

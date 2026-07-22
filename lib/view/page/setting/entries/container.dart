@@ -7,7 +7,7 @@ extension _Container on _AppSettingsPageState {
         _buildUsePodman(),
         _buildContainerTrySudo(),
         _buildContainerParseStat(),
-      ].map((e) => CardX(child: e)).toList(),
+      ],
     );
   }
 

@@ -2,12 +2,13 @@
 
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:fl_lib/fl_lib.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:icons_plus/icons_plus.dart';
-import 'package:responsive_framework/responsive_framework.dart';
+import 'package:server_box/core/chan.dart';
 import 'package:server_box/core/extension/context/locale.dart';
 import 'package:server_box/core/extension/ssh_client.dart';
 import 'package:server_box/core/route.dart';
@@ -17,16 +18,21 @@ import 'package:server_box/data/model/app/scripts/shell_func.dart';
 import 'package:server_box/data/model/server/server.dart';
 import 'package:server_box/data/model/server/server_private_info.dart';
 import 'package:server_box/data/model/server/try_limiter.dart';
+import 'package:server_box/data/provider/port_forward_provider.dart';
 import 'package:server_box/data/provider/server/all.dart';
 import 'package:server_box/data/provider/server/single.dart';
+import 'package:server_box/data/provider/sftp.dart';
 import 'package:server_box/data/res/build_data.dart';
 import 'package:server_box/data/res/store.dart';
+import 'package:server_box/data/ssh/session_manager.dart';
 import 'package:server_box/view/page/server/connection_stats.dart';
 import 'package:server_box/view/page/server/detail/view.dart';
 import 'package:server_box/view/page/server/edit/edit.dart';
 import 'package:server_box/view/page/setting/entry.dart';
+import 'package:server_box/view/responsive_layout.dart';
 import 'package:server_box/view/widget/percent_circle.dart';
 import 'package:server_box/view/widget/server_func_btns.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 part 'card_stat.dart';
 part 'content.dart';
@@ -60,13 +66,11 @@ class _ServerPageState extends ConsumerState<ServerPage>
   final _tag = ''.vn;
 
   final _scrollController = ScrollController();
-  final _autoHideCtrl = AutoHideController();
 
   @override
   void dispose() {
     _timer?.cancel();
     _scrollController.dispose();
-    _autoHideCtrl.dispose();
     _tag.dispose();
     _tags.dispose();
     _offsetNotifier.dispose();
@@ -107,32 +111,21 @@ class _ServerPageState extends ConsumerState<ServerPage>
   }
 
   Widget _buildScaffold(Widget child) {
+    final useStatusGlass = AppLayout.useStatusGlass(
+      MediaQuery.sizeOf(context).width,
+    );
     return Scaffold(
+      extendBodyBehindAppBar: useStatusGlass,
       appBar: _TopBar(
         tags: _tags,
         onTagChanged: (p0) => _tag.value = p0,
         initTag: _tag.value,
+        onAddServer: _onTapAddServer,
       ),
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: _autoHideCtrl.show,
-        child: Stores.setting.textFactor.listenable().listenVal((val) {
-          _updateTextScaler(val);
-          return child;
-        }),
-      ),
-      floatingActionButton: AutoHide(
-        direction: AxisDirection.right,
-        offset: 75,
-        scrollController: _scrollController,
-        hideController: _autoHideCtrl,
-        child: FloatingActionButton(
-          heroTag: 'addServer',
-          onPressed: _onTapAddServer,
-          tooltip: libL10n.add,
-          child: const Icon(Icons.add),
-        ),
-      ),
+      body: Stores.setting.textFactor.listenable().listenVal((val) {
+        _updateTextScaler(val);
+        return child;
+      }),
     );
   }
 
@@ -151,7 +144,17 @@ class _ServerPageState extends ConsumerState<ServerPage>
 
   Widget _buildBodySmall({required List<String> filtered}) {
     if (filtered.isEmpty) {
-      return Center(child: Text(libL10n.empty, textAlign: TextAlign.center));
+      return Padding(
+        padding: EdgeInsets.only(
+          top: AppLayout.useStatusGlass(MediaQuery.sizeOf(context).width)
+              ? _TopBar.mobileHeightWithStatus(
+                  context,
+                  _tags.value.isNotEmpty,
+                )
+              : 0,
+        ),
+        child: Center(child: Text(libL10n.empty, textAlign: TextAlign.center)),
+      );
     }
 
     return LayoutBuilder(
@@ -161,9 +164,16 @@ class _ServerPageState extends ConsumerState<ServerPage>
           1,
           (cons.maxWidth / UIs.columnWidth).floor(),
         );
+        final useStatusGlass = AppLayout.useStatusGlass(cons.maxWidth);
+        final firstCardTopInset = useStatusGlass
+            ? _TopBar.mobileHeightWithStatus(
+                context,
+                _tags.value.isNotEmpty,
+              )
+            : 0.0;
         final padding = columnsCount > 1
-            ? const EdgeInsets.fromLTRB(0, 0, 5, 7)
-            : const EdgeInsets.fromLTRB(7, 0, 7, 7);
+            ? EdgeInsets.fromLTRB(0, firstCardTopInset, 5, 7)
+            : EdgeInsets.fromLTRB(7, firstCardTopInset, 7, 7);
 
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -188,7 +198,9 @@ class _ServerPageState extends ConsumerState<ServerPage>
                     serverProvider(serversInThisColumn[index]),
                   );
 
-                  return _buildEachServerCard(individualState);
+                  return _buildEachServerCard(
+                    individualState,
+                  );
                 },
               ),
             );
@@ -199,19 +211,76 @@ class _ServerPageState extends ConsumerState<ServerPage>
   }
 
   Widget _buildEachServerCard(ServerState srv) {
-    return CardX(
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final failed = srv.conn == ServerConn.failed;
+    final baseColor = scheme.surfaceContainerLow;
+    final cardColor = Color.alphaBlend(
+      failed
+          ? Colors.orange.withAlpha(
+              theme.brightness == Brightness.dark ? 18 : 10,
+            )
+          : scheme.primary.withAlpha(
+              theme.brightness == Brightness.dark ? 16 : 9,
+            ),
+      baseColor,
+    );
+    final outlineColor = failed
+        ? Color.lerp(scheme.outlineVariant, Colors.orange, 0.24)!.withAlpha(
+            theme.brightness == Brightness.dark ? 92 : 76,
+          )
+        : scheme.outlineVariant.withAlpha(26);
+    final shape = RoundedSuperellipseBorder(
+      borderRadius: const BorderRadius.all(Radius.circular(28)),
+      side: BorderSide(color: outlineColor, width: 0.7),
+    );
+
+    return Padding(
       key: Key(srv.spi.id + _tag.value),
-      child: InkWell(
-        onTap: () => _onTapCard(srv),
-        onLongPress: () => _onLongPressCard(srv),
-        child: Padding(
-          padding: const EdgeInsets.only(
-            left: _cardPadSingle,
-            right: 3,
-            top: _cardPadSingle,
-            bottom: _cardPadSingle,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: AnimatedContainer(
+        duration: Durations.medium2,
+        curve: Curves.fastEaseInToSlowEaseOut,
+        decoration: ShapeDecoration(
+          color: cardColor,
+          shape: shape,
+          shadows: [
+            BoxShadow(
+              color: scheme.shadow.withAlpha(7),
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          shape: shape,
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.passthrough,
+            children: [
+              InkWell(
+                customBorder: shape,
+                onTap: () => _onTapCard(srv),
+                onLongPress: () => _onLongPressCard(srv),
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    left: _cardPadSingle,
+                    right: 3,
+                    top: _cardPadSingle,
+                    bottom: _cardPadSingle,
+                  ),
+                  child: _buildRealServerCard(srv),
+                ),
+              ),
+              if (srv.conn == ServerConn.connecting ||
+                  srv.conn == ServerConn.connected ||
+                  srv.conn == ServerConn.loading)
+                Positioned.fill(
+                  child: IgnorePointer(child: _CardConnectionSweep(shape)),
+                ),
+            ],
           ),
-          child: _buildRealServerCard(srv),
         ),
       ),
     );
@@ -363,4 +432,89 @@ class _ServerPageState extends ConsumerState<ServerPage>
   static const _kCardHeightFlip = 99.0;
   static const _kCardHeightNormal = 110.0;
   static const _kCardHeightMoveOutFuncs = 135.0;
+}
+
+final class _CardConnectionSweep extends StatefulWidget {
+  final ShapeBorder shape;
+
+  const _CardConnectionSweep(this.shape);
+
+  @override
+  State<_CardConnectionSweep> createState() => _CardConnectionSweepState();
+}
+
+final class _CardConnectionSweepState extends State<_CardConnectionSweep>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3600),
+  )..repeat();
+
+  late final Animation<double> _travel = CurvedAnimation(
+    parent: _controller,
+    curve: const Interval(0, 0.84, curve: Curves.easeInOutSine),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return ClipPath(
+      clipper: ShapeBorderClipper(shape: widget.shape),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final bandWidth = math.min(168.0, constraints.maxWidth * 0.55);
+          return AnimatedBuilder(
+            animation: _travel,
+            builder: (context, child) {
+              final left =
+                  -bandWidth +
+                  (constraints.maxWidth + bandWidth * 2) * _travel.value;
+              return Stack(
+                children: [
+                  Positioned(
+                    left: left,
+                    top: -24,
+                    bottom: -24,
+                    width: bandWidth,
+                    child: Transform.rotate(
+                      angle: -0.035,
+                      child: ImageFiltered(
+                        imageFilter: ImageFilter.blur(
+                          sigmaX: 20,
+                          sigmaY: 7,
+                        ),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.transparent,
+                                scheme.primary.withAlpha(3),
+                                Colors.white.withAlpha(
+                                  theme.brightness == Brightness.dark ? 22 : 58,
+                                ),
+                                scheme.primary.withAlpha(5),
+                                Colors.transparent,
+                              ],
+                              stops: const [0, 0.2, 0.5, 0.8, 1],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
 }

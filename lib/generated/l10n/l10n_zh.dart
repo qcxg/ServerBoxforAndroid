@@ -620,6 +620,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get sftpShowFoldersFirst => '文件夹显示在前';
 
   @override
+  String get sshSftpLink => '联动 SSH 与 SFTP';
+
+  @override
+  String get sshSftpLinkTip => '打开或切换 SSH 连接时，自动在文件页面打开同一服务器。';
+
+  @override
   String get size => '大小';
 
   @override
@@ -912,6 +918,76 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get systemd => 'Systemd';
+
+  @override
+  String get sshCommandBuffer => '命令缓冲区';
+
+  @override
+  String get sshCommandBufferHint => '仅在本地编辑；每行一条命令。多行结构请使用一次发送。';
+
+  @override
+  String get sshDirectInput => '直接输入模式';
+
+  @override
+  String get sshSendAllAtOnce => '一次发送';
+
+  @override
+  String get sshSendLineByLine => '逐行发送';
+
+  @override
+  String get sshSend => '发送';
+
+  @override
+  String get sshConnecting => '正在连接';
+
+  @override
+  String get sshConnected => '已连接';
+
+  @override
+  String get sshConnectionLost => '连接断开';
+
+  @override
+  String get sshSendAllHelp => '单行会自动附带回车执行；多行 Shell 结构会整段发送。';
+
+  @override
+  String get sshSendLineByLineHelp => '每个非空行会按顺序独立执行。';
+
+  @override
+  String get exitBackgroundDescription =>
+      '这会停止所有 SSH 会话、服务器监控、端口转发与文件传输，然后退出 ServerBox。';
+
+  @override
+  String get stopAndExit => '停止并退出';
+
+  @override
+  String get snippetLibraryDescription => '可重复使用的命令';
+
+  @override
+  String get snippetNoMatch => '没有符合当前搜索或筛选条件的片段。';
+
+  @override
+  String get snippetCopySuffix => '副本';
+
+  @override
+  String get snippetDuplicate => '创建副本';
+
+  @override
+  String get snippetInsertVariable => '插入变量或控制键';
+
+  @override
+  String get snippetAutoRunDescription => '可选：在指定服务器连接后自动运行此片段。';
+
+  @override
+  String get snippetUnsavedTitle => '片段尚未保存';
+
+  @override
+  String get snippetUnsavedDescription => '要放弃对此片段所做的更改吗？';
+
+  @override
+  String get snippetDiscard => '放弃更改';
+
+  @override
+  String get snippetNameExists => '已存在同名的片段。';
 }
 
 /// The translations for Chinese, as used in Taiwan (`zh_TW`).
@@ -1511,6 +1587,12 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
   String get sftpShowFoldersFirst => '資料夾顯示在前';
 
   @override
+  String get sshSftpLink => '聯動 SSH 與 SFTP';
+
+  @override
+  String get sshSftpLinkTip => '開啟或切換 SSH 連線時，自動在檔案頁面開啟同一部伺服器。';
+
+  @override
   String get size => '大小';
 
   @override
@@ -1725,4 +1807,74 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get systemd => 'Systemd';
+
+  @override
+  String get sshCommandBuffer => '指令緩衝區';
+
+  @override
+  String get sshCommandBufferHint => '僅在本機編輯；每行一條指令。多行結構請使用一次傳送。';
+
+  @override
+  String get sshDirectInput => '直接輸入模式';
+
+  @override
+  String get sshSendAllAtOnce => '一次傳送';
+
+  @override
+  String get sshSendLineByLine => '逐行傳送';
+
+  @override
+  String get sshSend => '傳送';
+
+  @override
+  String get sshConnecting => '正在連線';
+
+  @override
+  String get sshConnected => '已連線';
+
+  @override
+  String get sshConnectionLost => '連線中斷';
+
+  @override
+  String get sshSendAllHelp => '單行會自動附帶 Enter 執行；多行 Shell 結構會整段傳送。';
+
+  @override
+  String get sshSendLineByLineHelp => '每個非空行會依序獨立執行。';
+
+  @override
+  String get exitBackgroundDescription =>
+      '這會停止所有 SSH 工作階段、伺服器監控、連接埠轉送與檔案傳輸，然後退出 ServerBox。';
+
+  @override
+  String get stopAndExit => '停止並退出';
+
+  @override
+  String get snippetLibraryDescription => '可重複使用的指令';
+
+  @override
+  String get snippetNoMatch => '沒有符合目前搜尋或篩選條件的片段。';
+
+  @override
+  String get snippetCopySuffix => '副本';
+
+  @override
+  String get snippetDuplicate => '建立副本';
+
+  @override
+  String get snippetInsertVariable => '插入變數或控制鍵';
+
+  @override
+  String get snippetAutoRunDescription => '可選：在指定伺服器連線後自動執行此片段。';
+
+  @override
+  String get snippetUnsavedTitle => '片段尚未儲存';
+
+  @override
+  String get snippetUnsavedDescription => '要捨棄對此片段所做的變更嗎？';
+
+  @override
+  String get snippetDiscard => '捨棄變更';
+
+  @override
+  String get snippetNameExists => '已存在同名的片段。';
 }

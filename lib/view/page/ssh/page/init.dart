@@ -36,7 +36,7 @@ extension _Init on SSHPageState {
     _listen(session.stderr, name: 'stderr');
 
     _session = session;
-    TermSessionManager.updateStatus(_sessionId, TermSessionStatus.connected);
+    _setConnectionStatus(TermSessionStatus.connected);
     unawaited(_waitForegroundSessionDone(session));
   }
 
@@ -168,6 +168,7 @@ extension _Init on SSHPageState {
     final session = await _openForegroundSession();
 
     if (session == null) {
+      _setConnectionStatus(TermSessionStatus.disconnected);
       _writeLn(libL10n.fail);
       return;
     }
@@ -286,10 +287,7 @@ extension _Init on SSHPageState {
       _missedKeepAliveCount = 0;
       if (_reportedDisconnected) {
         _reportedDisconnected = false;
-        TermSessionManager.updateStatus(
-          _sessionId,
-          TermSessionStatus.connected,
-        );
+        _setConnectionStatus(TermSessionStatus.connected);
       }
     } on TimeoutException catch (error) {
       _handleConnectionCheckFailure(error, immediate: immediate);
@@ -332,7 +330,7 @@ extension _Init on SSHPageState {
     _reportedDisconnected = true;
     _discontinuityTimer?.cancel();
     _writeLn('\n\n${libL10n.disconnected}\r\n');
-    TermSessionManager.updateStatus(_sessionId, TermSessionStatus.disconnected);
+    _setConnectionStatus(TermSessionStatus.disconnected);
 
     final sessionName = _tmuxCurrentSession;
     // Check if we have any tmux session to recover
@@ -420,7 +418,7 @@ extension _Init on SSHPageState {
     }
 
     _reportedDisconnected = false;
-    TermSessionManager.updateStatus(_sessionId, TermSessionStatus.connected);
+    _setConnectionStatus(TermSessionStatus.connected);
     _setupDiscontinuityTimer();
   }
 
@@ -447,7 +445,7 @@ extension _Init on SSHPageState {
       );
     }
 
-    TermSessionManager.updateStatus(_sessionId, TermSessionStatus.connecting);
+    _setConnectionStatus(TermSessionStatus.connecting);
 
     const maxAttempts = 10;
     const baseInterval = Duration(milliseconds: 200);
@@ -982,7 +980,7 @@ final class _TmuxClientCandidate {
 extension on SSHPageState {
   void _disconnectFromNotification() {
     // Mark as disconnected in session manager for immediate UI/notification feedback
-    TermSessionManager.updateStatus(_sessionId, TermSessionStatus.disconnected);
+    _setConnectionStatus(TermSessionStatus.disconnected);
 
     // Try to close the running SSH session, if any
     try {

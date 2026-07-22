@@ -1,11 +1,17 @@
 package tech.lolli.toolbox
 
+import android.annotation.SuppressLint
 import android.app.*
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
+import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,6 +30,8 @@ class ForegroundService : Service() {
     private val ACTION_DISCONNECT_SESSION = "tech.lolli.toolbox.ACTION_DISCONNECT_SESSION"
 
     private var isFgStarted = false
+    private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private val postedIds = mutableSetOf<Int>()
     // Stable mapping from session-id -> notification-id to avoid hash collisions
     private val notificationIdMap = mutableMapOf<String, Int>()
@@ -50,18 +58,6 @@ class ForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            // Check notification permission for Android 13+
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                androidx.core.content.ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.POST_NOTIFICATIONS
-                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-                Log.w("ForegroundService", "Notification permission denied. Stopping service gracefully.")
-                // Don't call stopForegroundService() here as we haven't started foreground yet
-                stopSelf()
-                return START_NOT_STICKY
-            }
-
             if (intent == null) {
                 Log.w("ForegroundService", "onStartCommand called with null intent")
                 // Don't call stopForegroundService() here as we haven't started foreground yet
@@ -129,19 +125,14 @@ class ForegroundService : Service() {
 
     private fun ensureForeground(notification: Notification) {
         try {
-            // Double-check notification permission before starting foreground service
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                androidx.core.content.ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.POST_NOTIFICATIONS
-                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-                Log.w("ForegroundService", "Cannot start foreground service without notification permission")
-                stopSelf()
-                return
-            }
-
             if (!isFgStarted) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                    )
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
                 } else {
                     startForeground(NOTIFICATION_ID, notification)
@@ -268,6 +259,7 @@ class ForegroundService : Service() {
         // Clear if empty
         if (sessions.isEmpty()) {
             clearAll()
+            stopForegroundService()
             return
         }
 
@@ -281,6 +273,65 @@ class ForegroundService : Service() {
         val summaryLines = sessions.map { "${it.title}: ${it.status}" }
         val mergedNotification = createMergedNotification(sessions.size, summaryLines, sessions)
         ensureForeground(mergedNotification)
+        if (isFgStarted) {
+            acquireConnectionLocks()
+        }
+    }
+
+    @SuppressLint("WakelockTimeout", "Deprecated")
+    private fun acquireConnectionLocks() {
+        try {
+            if (cpuWakeLock?.isHeld != true) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                cpuWakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "$packageName:ssh-session",
+                ).apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+
+            // API 34 maps HIGH_PERF to LOW_LATENCY, which only applies while
+            // the app is foreground and the screen is on. It is useful for
+            // background SSH only on older Android versions.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                wifiLock?.isHeld != true
+            ) {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                wifiLock = wifiManager.createWifiLock(
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                    "$packageName:ssh-session",
+                ).apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+        } catch (e: Exception) {
+            logError("Failed to acquire SSH connection locks", e)
+        }
+    }
+
+    private fun releaseConnectionLocks() {
+        try {
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+            }
+        } catch (e: Exception) {
+            logError("Failed to release Wi-Fi lock", e)
+        } finally {
+            wifiLock = null
+        }
+
+        try {
+            if (cpuWakeLock?.isHeld == true) {
+                cpuWakeLock?.release()
+            }
+        } catch (e: Exception) {
+            logError("Failed to release CPU wake lock", e)
+        } finally {
+            cpuWakeLock = null
+        }
     }
 
     private fun clearAll() {
@@ -288,7 +339,8 @@ class ForegroundService : Service() {
         nm?.cancel(NOTIFICATION_ID)
         postedIds.forEach { id -> nm?.cancel(id) }
         postedIds.clear()
-        isFgStarted = false
+        notificationIdMap.clear()
+        releaseConnectionLocks()
     }
 
     data class SessionItem(
@@ -300,6 +352,7 @@ class ForegroundService : Service() {
     )
 
     private fun stopForegroundService() {
+        releaseConnectionLocks()
         try {
             if (isFgStarted) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -312,7 +365,19 @@ class ForegroundService : Service() {
         Log.d("ForegroundService", "ForegroundService stopped")
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.d("ForegroundService", "Task removed; stopping all SSH background work")
+        sendBroadcast(Intent("tech.lolli.toolbox.STOP_ALL_CONNECTIONS"))
+        clearAll()
+        stopForegroundService()
+        Handler(Looper.getMainLooper()).postDelayed({
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, 350)
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
+        releaseConnectionLocks()
         super.onDestroy()
         Log.d("ForegroundService", "Service onDestroy")
         isRunning = false

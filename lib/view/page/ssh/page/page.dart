@@ -5,11 +5,11 @@ import 'dart:ui';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:fl_lib/fl_lib.dart';
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart'
+    show Listenable, ValueListenable, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:server_box/core/chan.dart';
 import 'package:server_box/core/extension/context/locale.dart';
 import 'package:server_box/core/utils/server.dart';
 import 'package:server_box/core/utils/ssh_auth.dart';
@@ -24,18 +24,21 @@ import 'package:server_box/data/provider/snippet.dart';
 import 'package:server_box/data/provider/virtual_keyboard.dart';
 import 'package:server_box/data/res/store.dart';
 import 'package:server_box/data/res/terminal.dart';
+import 'package:server_box/data/ssh/command_buffer.dart';
 import 'package:server_box/data/ssh/persistent_shell.dart';
 import 'package:server_box/data/ssh/session_manager.dart';
 import 'package:server_box/data/ssh/ssh_terminal_environment.dart';
 import 'package:server_box/data/ssh/terminal_output_buffer.dart';
 import 'package:server_box/data/ssh/tmux/tmux_export.dart';
 import 'package:server_box/view/page/storage/sftp.dart';
+import 'package:server_box/view/widget/ssh_connection_status.dart';
 import 'package:server_box/view/widget/tmux_session_selector.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:xterm/core.dart';
 import 'package:xterm/ui.dart' hide TerminalThemes;
 
 part 'ask_ai.dart';
+part 'command_composer.dart';
 part 'init.dart';
 part 'keyboard.dart';
 part 'virt_key.dart';
@@ -52,6 +55,7 @@ final class SshPageArgs {
   final String? tmuxSession;
   final int? tmuxWindow;
   final VoidCallback? onTmuxStateChanged;
+  final ValueNotifier<TermSessionStatus>? connectionStatus;
 
   const SshPageArgs({
     required this.spi,
@@ -65,6 +69,7 @@ final class SshPageArgs {
     this.tmuxSession,
     this.tmuxWindow,
     this.onTmuxStateChanged,
+    this.connectionStatus,
   }) : assert(
          notFromTab || visibleListenable != null,
          'visibleListenable is required when notFromTab is false',
@@ -167,7 +172,15 @@ class SSHPageState extends ConsumerState<SSHPage>
   bool _horizonVirtKeys = false;
 
   bool _isDark = false;
-  Timer? _virtKeyLongPressTimer;
+  Timer? _virtKeyRepeatTimer;
+  final TextEditingController _commandBufferController =
+      TextEditingController();
+  final FocusNode _commandBufferFocusNode = FocusNode();
+  final ValueNotifier<_CommandSendMode> _commandSendMode = ValueNotifier(
+    _CommandSendMode.allAtOnce,
+  );
+  final ValueNotifier<bool> _isCommandComposerOpen = ValueNotifier(false);
+  final ValueNotifier<bool> _isSendingCommandBuffer = ValueNotifier(false);
   SSHClient? _client;
   SSHSession? _session;
   Timer? _discontinuityTimer;
@@ -187,6 +200,8 @@ class SSHPageState extends ConsumerState<SSHPage>
   bool _reconnectCancelled = false;
   bool _disconnectDialogOpen = false;
   bool _reportedDisconnected = false;
+  late final ValueNotifier<TermSessionStatus> _connectionStatus;
+  late final bool _ownsConnectionStatus;
   VoidCallback? _visibilityListener;
   bool _isPickingSnippet = false;
   String? _tmuxCurrentSession;
@@ -205,13 +220,25 @@ class SSHPageState extends ConsumerState<SSHPage>
 
   Future<void> pickSnippetFromToolbar() => _pickSnippet();
 
+  void _setConnectionStatus(TermSessionStatus status) {
+    if (_connectionStatus.value != status) {
+      _connectionStatus.value = status;
+    }
+    TermSessionManager.updateStatus(_sessionId, status);
+  }
+
   @override
   void dispose() {
     _restorableServerId.dispose();
     _restorableTmuxSession.dispose();
     _restorableTmuxWindow.dispose();
     WidgetsBinding.instance.removeObserver(this);
-    _virtKeyLongPressTimer?.cancel();
+    _stopVirtKeyRepeat();
+    _commandBufferController.dispose();
+    _commandBufferFocusNode.dispose();
+    _commandSendMode.dispose();
+    _isCommandComposerOpen.dispose();
+    _isSendingCommandBuffer.dispose();
     _terminalController.dispose();
     _discontinuityTimer?.cancel();
     _terminalFlushTimer?.cancel();
@@ -233,13 +260,13 @@ class SSHPageState extends ConsumerState<SSHPage>
 
     if (--_sshConnCount <= 0) {
       WakelockPlus.disable();
-      if (isAndroid) {
-        MethodChans.stopService();
-      }
     }
 
     // Remove session entry
     TermSessionManager.remove(_sessionId);
+    if (_ownsConnectionStatus) {
+      _connectionStatus.dispose();
+    }
 
     super.dispose();
   }
@@ -247,6 +274,11 @@ class SSHPageState extends ConsumerState<SSHPage>
   @override
   void initState() {
     super.initState();
+    _ownsConnectionStatus = widget.args.connectionStatus == null;
+    _connectionStatus =
+        widget.args.connectionStatus ??
+        ValueNotifier(TermSessionStatus.connecting);
+    _connectionStatus.value = TermSessionStatus.connecting;
     WidgetsBinding.instance.addObserver(this);
     _initStoredCfg();
     _reloadVirtKeys();
@@ -268,9 +300,6 @@ class SSHPageState extends ConsumerState<SSHPage>
 
     if (++_sshConnCount == 1) {
       WakelockPlus.enable();
-      if (isAndroid) {
-        MethodChans.startService();
-      }
     }
 
     // Add session entry (for Android notifications & iOS Live Activities)
@@ -307,10 +336,14 @@ class SSHPageState extends ConsumerState<SSHPage>
         }
         break;
       case AppLifecycleState.paused:
+        _stopVirtKeyRepeat();
         if (!_isVisibleSessionPage) return;
         TermSessionManager.setActive(_sessionId, hasTerminal: false);
         break;
-      default:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _stopVirtKeyRepeat();
         break;
     }
   }
@@ -349,7 +382,10 @@ class SSHPageState extends ConsumerState<SSHPage>
         appBar: widget.args.notFromTab
             ? CustomAppBar(
                 leading: BackButton(onPressed: context.pop),
-                title: Text(widget.args.spi.name),
+                title: SshConnectionTitle(
+                  title: widget.args.spi.name,
+                  statusListenable: _connectionStatus,
+                ),
                 centerTitle: false,
                 actions: _buildAppBarActions(),
               )
@@ -416,6 +452,7 @@ class SSHPageState extends ConsumerState<SSHPage>
           controller: _terminalController,
           keyboardType: TextInputType.text,
           enableSuggestions: letterCache,
+          enableIMEPersonalizedLearning: true,
           textStyle: _terminalStyle,
           backgroundOpacity: 0,
           theme: theme,
@@ -443,34 +480,7 @@ class SSHPageState extends ConsumerState<SSHPage>
     );
   }
 
-  Widget _buildBottom() {
-    if (_virtKeysHeight == 0) {
-      return const SizedBox.shrink();
-    }
-    return SafeArea(
-      top: false,
-      child: AnimatedPadding(
-        padding: _media.viewInsets,
-        duration: const Duration(milliseconds: 23),
-        curve: Curves.fastOutSlowIn,
-        child: Container(
-          color: _terminalTheme.background,
-          height: _virtKeysHeight,
-          child: Consumer(
-            builder: (context, ref, child) {
-              final virtKeyState = ref.watch(virtKeyboardProvider);
-              final virtKeyNotifier = ref.read(virtKeyboardProvider.notifier);
-
-              // Set the terminal input handler
-              _terminal.inputHandler = virtKeyNotifier;
-
-              return _buildVirtualKey(virtKeyState, virtKeyNotifier);
-            },
-          ),
-        ),
-      ),
-    );
-  }
+  Widget _buildBottom() => _buildMobileInputPanel();
 
   List<Widget> _buildAppBarActions() {
     final actions = <Widget>[
@@ -613,16 +623,13 @@ class SSHPageState extends ConsumerState<SSHPage>
 
     return InkWell(
       onTap: () => _doVirtualKey(item, virtKeyNotifier),
-      onTapDown: (details) {
+      onTapDown: (_) {
         if (item.canLongPress) {
-          _virtKeyLongPressTimer = Timer.periodic(
-            const Duration(milliseconds: 137),
-            (_) => _doVirtualKey(item, virtKeyNotifier),
-          );
+          _startVirtKeyRepeat(item, virtKeyNotifier);
         }
       },
-      onTapCancel: () => _virtKeyLongPressTimer?.cancel(),
-      onTapUp: (_) => _virtKeyLongPressTimer?.cancel(),
+      onTapCancel: _stopVirtKeyRepeat,
+      onTapUp: (_) => _stopVirtKeyRepeat(),
       child: SizedBox(
         width: virtKeyWidth,
         height: _horizonVirtKeys
@@ -631,6 +638,30 @@ class SSHPageState extends ConsumerState<SSHPage>
         child: Center(child: child),
       ),
     );
+  }
+
+  void _startVirtKeyRepeat(VirtKey item, VirtKeyboard virtKeyNotifier) {
+    _stopVirtKeyRepeat();
+    final deadline = DateTime.now().add(const Duration(seconds: 4));
+    _virtKeyRepeatTimer = Timer(const Duration(milliseconds: 450), () {
+      if (!mounted) return;
+      _doVirtualKey(item, virtKeyNotifier);
+      _virtKeyRepeatTimer = Timer.periodic(
+        const Duration(milliseconds: 90),
+        (timer) {
+          if (!mounted || DateTime.now().isAfter(deadline)) {
+            timer.cancel();
+            return;
+          }
+          _doVirtualKey(item, virtKeyNotifier);
+        },
+      );
+    });
+  }
+
+  void _stopVirtKeyRepeat() {
+    _virtKeyRepeatTimer?.cancel();
+    _virtKeyRepeatTimer = null;
   }
 
   void _onTerminalCopied() {
@@ -813,7 +844,12 @@ class SSHPageState extends ConsumerState<SSHPage>
   @override
   FutureOr<void> afterFirstLayout(BuildContext context) async {
     await _showHelp();
-    await _initTerminal();
+    try {
+      await _initTerminal();
+    } catch (_) {
+      _setConnectionStatus(TermSessionStatus.disconnected);
+      rethrow;
+    }
 
     if (Stores.setting.sshWakeLock.fetch()) WakelockPlus.enable();
 
