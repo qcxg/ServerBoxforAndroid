@@ -159,6 +159,10 @@ class _HomePageState extends ConsumerState<HomePage>
             selectedIndex < _tabs.length &&
             _tabs[selectedIndex] == AppTab.server;
         return Scaffold(
+          // The home shell itself never owns a text field. Let nested pages
+          // handle their keyboards without allowing a stale Android IME inset
+          // to permanently shorten the tab viewport after a route is popped.
+          resizeToAvoidBottomInset: false,
           extendBody: isMobile,
           extendBodyBehindAppBar: serverUsesStatusGlass,
           appBar: _AppBar(
@@ -217,51 +221,18 @@ class _HomePageState extends ConsumerState<HomePage>
     );
   }
 
-  Widget _buildRailBar({bool extended = false}) {
-    return SafeArea(
-      child: Stack(
-        children: [
-          ListenableBuilder(
-            listenable: _selectIndex,
-            builder: (context, _) {
-              if (_isServerFullscreenMode) return UIs.placeholder;
-              return NavigationRail(
-                extended: extended,
-                minExtendedWidth: 150,
-                leading: extended ? const SizedBox(height: 20) : null,
-                trailing: extended ? const SizedBox(height: 20) : null,
-                labelType: extended
-                    ? NavigationRailLabelType.none
-                    : NavigationRailLabelType.all,
-                selectedIndex: _selectIndex.value,
-                destinations: _tabs
-                    .map((tab) => tab.navRailDestination)
-                    .toList(),
-                onDestinationSelected: _onDestinationSelected,
-              );
-            },
-          ),
-          // Settings Btn
-          ListenableBuilder(
-            listenable: _selectIndex,
-            builder: (context, _) {
-              if (_isServerFullscreenMode) return UIs.placeholder;
-              return Positioned(
-                bottom: 10,
-                left: 0,
-                right: 0,
-                child: IconButton(
-                  icon: const Icon(Icons.settings),
-                  tooltip: libL10n.setting,
-                  onPressed: () {
-                    SettingsPage.route.go(context);
-                  },
-                ),
-              );
-            },
-          ),
-        ],
-      ),
+  Widget _buildRailBar() {
+    return ListenableBuilder(
+      listenable: _selectIndex,
+      builder: (context, _) {
+        if (_isServerFullscreenMode) return UIs.placeholder;
+        return _ExpressiveSideNavigation(
+          tabs: _tabs,
+          selectedIndex: _selectIndex.value,
+          onDestinationSelected: _onDestinationSelected,
+          onSettings: () => SettingsPage.route.go(context),
+        );
+      },
     );
   }
 
@@ -331,6 +302,189 @@ class _HomePageState extends ConsumerState<HomePage>
       if (!mounted) return;
       SystemUIs.switchStatusBar(hide: hide);
     });
+  }
+}
+
+final class _ExpressiveSideNavigation extends StatelessWidget {
+  const _ExpressiveSideNavigation({
+    required this.tabs,
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+    required this.onSettings,
+  });
+
+  final List<AppTab> tabs;
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+  final VoidCallback onSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (tabs.isEmpty) return const SizedBox(width: 92);
+    final selected = selectedIndex.clamp(0, tabs.length - 1);
+    return Material(
+      color: Color.alphaBlend(
+        scheme.primary.withAlpha(5),
+        scheme.surfaceContainerLow,
+      ),
+      child: SafeArea(
+        right: false,
+        child: SizedBox(
+          width: 92,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                right: BorderSide(
+                  color: scheme.outlineVariant.withAlpha(70),
+                  width: 0.8,
+                ),
+              ),
+            ),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    itemCount: tabs.length,
+                    itemBuilder: (context, index) {
+                      final destination = tabs[index].navDestination;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: _SideNavigationItem(
+                          label: destination.label,
+                          icon: destination.icon,
+                          selectedIcon:
+                              destination.selectedIcon ?? destination.icon,
+                          selected: selected == index,
+                          onTap: () => onDestinationSelected(index),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+                  child: _SideNavigationItem(
+                    label: libL10n.setting,
+                    icon: const Icon(Icons.settings_outlined),
+                    selectedIcon: const Icon(Icons.settings_rounded),
+                    selected: false,
+                    onTap: onSettings,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+final class _SideNavigationItem extends StatelessWidget {
+  const _SideNavigationItem({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final Widget icon;
+  final Widget selectedIcon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = selected
+        ? scheme.onSecondaryContainer
+        : scheme.onSurfaceVariant;
+    final shape = RoundedSuperellipseBorder(
+      borderRadius: const BorderRadius.all(Radius.circular(18)),
+      side: BorderSide(
+        color: selected
+            ? scheme.outlineVariant.withAlpha(75)
+            : Colors.transparent,
+        width: 0.7,
+      ),
+    );
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Material(
+        color: Colors.transparent,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          customBorder: shape,
+          splashFactory: NoSplash.splashFactory,
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+          onTap: onTap,
+          child: AnimatedContainer(
+            height: 66,
+            duration: Durations.medium2,
+            curve: Curves.fastEaseInToSlowEaseOut,
+            decoration: ShapeDecoration(
+              color: selected
+                  ? scheme.secondaryContainer.withAlpha(205)
+                  : Colors.transparent,
+              shape: shape,
+            ),
+            child: Stack(
+              children: [
+                AnimatedPositionedDirectional(
+                  duration: Durations.medium2,
+                  curve: Curves.fastEaseInToSlowEaseOut,
+                  start: selected ? 0 : -4,
+                  top: 18,
+                  bottom: 18,
+                  child: AnimatedOpacity(
+                    duration: Durations.short4,
+                    opacity: selected ? 1 : 0,
+                    child: Container(
+                      width: 3,
+                      decoration: BoxDecoration(
+                        color: scheme.primary,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  ),
+                ),
+                Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconTheme(
+                        data: IconThemeData(color: foreground, size: 22),
+                        child: selected ? selectedIcon : icon,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: foreground,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

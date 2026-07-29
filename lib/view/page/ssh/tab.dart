@@ -18,6 +18,7 @@ import 'package:server_box/data/ssh/session_manager.dart';
 import 'package:server_box/data/ssh/ssh_sftp_link.dart';
 import 'package:server_box/view/page/server/edit/edit.dart';
 import 'package:server_box/view/page/ssh/page/page.dart';
+import 'package:server_box/view/widget/server_reachability_dot.dart';
 import 'package:server_box/view/widget/ssh_connection_status.dart';
 
 class SSHTabPage extends ConsumerStatefulWidget {
@@ -56,7 +57,7 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
     // Restore tabs after the first frame
     if (initialRestore && _restorableTabsState.value.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _restoreTabs();
+        _restoreTabs().ignore();
       });
     }
   }
@@ -83,7 +84,7 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
     _restorableTabsState.value = jsonEncode(tabsData);
   }
 
-  void _restoreTabs() {
+  Future<void> _restoreTabs() async {
     try {
       final tabsData = jsonDecode(_restorableTabsState.value) as List;
       for (final tabData in tabsData) {
@@ -98,12 +99,33 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
           continue;
         }
 
-        // Add the tab with tmux state
-        _addTab(spi, tmuxSession: tmuxSession, tmuxWindow: tmuxWindow);
+        final connection = await _waitForHomeConnection(spi.id);
+        if (!mounted || connection != ServerConn.finished) continue;
+
+        // Only restore after the home monitor has confirmed the server online.
+        await _addTab(
+          spi,
+          tmuxSession: tmuxSession,
+          tmuxWindow: tmuxWindow,
+        );
       }
     } catch (e, st) {
       Loggers.app.warning('Failed to restore SSH tabs', e, st);
     }
+  }
+
+  Future<ServerConn> _waitForHomeConnection(String serverId) async {
+    final timeoutSeconds = Stores.setting.timeout.fetch().clamp(3, 15);
+    final deadline = DateTime.now().add(Duration(seconds: timeoutSeconds));
+    var connection = ref.read(serverProvider(serverId)).conn;
+    while (mounted &&
+        connection != ServerConn.finished &&
+        connection != ServerConn.failed &&
+        DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 150));
+      connection = ref.read(serverProvider(serverId)).conn;
+    }
+    return connection;
   }
 
   late final _TabMap _tabMap = {
@@ -357,6 +379,8 @@ extension on _SSHTabPageState {
   }
 
   void _onTapInitCard(Spi spi) async {
+    final connection = ref.read(serverProvider(spi.id)).conn;
+    if (!await guardServerReachability(context, spi, connection)) return;
     await _addTab(spi);
   }
 
@@ -967,18 +991,9 @@ final class _SshServerCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final conn = ref.watch(
+    final connection = ref.watch(
       serverProvider(spi.id).select((value) => value.conn),
     );
-    final statusColor = switch (conn) {
-      ServerConn.failed => scheme.error,
-      ServerConn.disconnected => scheme.outline,
-      ServerConn.connecting => Colors.orange,
-      ServerConn.connected || ServerConn.loading || ServerConn.finished =>
-        theme.brightness == Brightness.dark
-            ? Colors.greenAccent.shade400
-            : Colors.green.shade600,
-    };
     const shape = RoundedSuperellipseBorder(
       borderRadius: BorderRadius.all(Radius.circular(26)),
     );
@@ -1016,17 +1031,11 @@ final class _SshServerCard extends ConsumerWidget {
                   Positioned(
                     right: -2,
                     bottom: -2,
-                    child: Container(
-                      width: 15,
-                      height: 15,
-                      decoration: BoxDecoration(
-                        color: statusColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: scheme.surfaceContainerLow,
-                          width: 3,
-                        ),
-                      ),
+                    child: ServerReachabilityDot(
+                      connection: connection,
+                      size: 15,
+                      borderColor: scheme.surfaceContainerLow,
+                      borderWidth: 3,
                     ),
                   ),
                 ],

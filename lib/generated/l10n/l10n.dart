@@ -1866,6 +1866,36 @@ abstract class AppLocalizations {
   /// **'Connection lost'**
   String get sshConnectionLost;
 
+  /// No description provided for @serverChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking'**
+  String get serverChecking;
+
+  /// No description provided for @serverOnline.
+  ///
+  /// In en, this message translates to:
+  /// **'Online'**
+  String get serverOnline;
+
+  /// No description provided for @serverOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline'**
+  String get serverOffline;
+
+  /// No description provided for @serverCheckingTip.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking server availability. Please wait.'**
+  String get serverCheckingTip;
+
+  /// No description provided for @serverOfflineForceTip.
+  ///
+  /// In en, this message translates to:
+  /// **'This server appears to be offline. Tap again within 5 seconds to force an SSH connection.'**
+  String get serverOfflineForceTip;
+
   /// No description provided for @sshSendAllHelp.
   ///
   /// In en, this message translates to:

@@ -947,6 +947,21 @@ class AppLocalizationsZh extends AppLocalizations {
   String get sshConnectionLost => '连接断开';
 
   @override
+  String get serverChecking => '检测中';
+
+  @override
+  String get serverOnline => '在线';
+
+  @override
+  String get serverOffline => '离线';
+
+  @override
+  String get serverCheckingTip => '正在检测服务器是否在线，请稍候。';
+
+  @override
+  String get serverOfflineForceTip => '该服务器似乎未在线。请在 5 秒内再次点击以强制发起 SSH 连接。';
+
+  @override
   String get sshSendAllHelp => '单行会自动附带回车执行；多行 Shell 结构会整段发送。';
 
   @override
@@ -1834,6 +1849,21 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get sshConnectionLost => '連線中斷';
+
+  @override
+  String get serverChecking => '檢測中';
+
+  @override
+  String get serverOnline => '在線';
+
+  @override
+  String get serverOffline => '離線';
+
+  @override
+  String get serverCheckingTip => '正在檢測伺服器是否在線，請稍候。';
+
+  @override
+  String get serverOfflineForceTip => '該伺服器似乎未在線。請在 5 秒內再次點擊以強制發起 SSH 連線。';
 
   @override
   String get sshSendAllHelp => '單行會自動附帶 Enter 執行；多行 Shell 結構會整段傳送。';

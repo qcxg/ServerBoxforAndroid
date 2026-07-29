@@ -111,9 +111,8 @@ class _ServerPageState extends ConsumerState<ServerPage>
   }
 
   Widget _buildScaffold(Widget child) {
-    final useStatusGlass = AppLayout.useStatusGlass(
-      MediaQuery.sizeOf(context).width,
-    );
+    final width = MediaQuery.sizeOf(context).width;
+    final useStatusGlass = AppLayout.useStatusGlass(width);
     return Scaffold(
       extendBodyBehindAppBar: useStatusGlass,
       appBar: _TopBar(
@@ -121,6 +120,8 @@ class _ServerPageState extends ConsumerState<ServerPage>
         onTagChanged: (p0) => _tag.value = p0,
         initTag: _tag.value,
         onAddServer: _onTapAddServer,
+        useStatusGlass: useStatusGlass,
+        expandedStatus: !AppLayout.useCompactNavigation(width),
       ),
       body: Stores.setting.textFactor.listenable().listenVal((val) {
         _updateTextScaler(val);

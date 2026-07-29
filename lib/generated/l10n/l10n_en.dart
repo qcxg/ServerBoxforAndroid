@@ -1004,6 +1004,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get sshConnectionLost => 'Connection lost';
 
   @override
+  String get serverChecking => 'Checking';
+
+  @override
+  String get serverOnline => 'Online';
+
+  @override
+  String get serverOffline => 'Offline';
+
+  @override
+  String get serverCheckingTip => 'Checking server availability. Please wait.';
+
+  @override
+  String get serverOfflineForceTip =>
+      'This server appears to be offline. Tap again within 5 seconds to force an SSH connection.';
+
+  @override
   String get sshSendAllHelp =>
       'Single line runs with Enter; multiline shell blocks are sent together.';
 

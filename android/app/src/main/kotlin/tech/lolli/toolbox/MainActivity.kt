@@ -31,6 +31,7 @@ class MainActivity: FlutterFragmentActivity() {
     private val ACTION_DISCONNECT_SESSION = "tech.lolli.toolbox.ACTION_DISCONNECT_SESSION"
     private val ACTION_STOP_ALL_CONNECTIONS = "tech.lolli.toolbox.STOP_ALL_CONNECTIONS"
     private var stopAllReceiver: BroadcastReceiver? = null
+    private var activeToast: Toast? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -73,7 +74,12 @@ class MainActivity: FlutterFragmentActivity() {
                             result.success(null)
                         } else {
                             runOnUiThread {
-                                Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+                                activeToast?.cancel()
+                                activeToast = Toast.makeText(
+                                    applicationContext,
+                                    message,
+                                    Toast.LENGTH_SHORT
+                                ).also { it.show() }
                             }
                             result.success(null)
                         }

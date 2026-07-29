@@ -1,0 +1,198 @@
+name: Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix, for example 1.0.1500
+        required: true
+        default: "1.0.1500"
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.44.6"
+  EXPECTED_CERT_SHA256: "7B:CA:1D:11:65:A9:78:FB:F8:EA:F2:E3:1D:2D:F8:4A:B9:A2:A3:6D:B4:A7:CE:04:DF:33:49:31:36:41:31:D8"
+
+jobs:
+  release:
+    name: Build signed Android release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Resolve and validate version
+        id: version
+        shell: bash
+        env:
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${DISPATCH_VERSION}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+
+          build="${version##*.}"
+          pub_version="$(sed -n -E 's/^version:[[:space:]]*([^+]+)\+([0-9]+)$/\1+\2/p' pubspec.yaml | head -n 1)"
+          build_data="$(sed -n -E 's/.*static const int build = ([0-9]+);/\1/p' lib/data/res/build_data.dart | head -n 1)"
+
+          if [[ "$pub_version" != "$version+$build" ]]; then
+            echo "pubspec.yaml contains $pub_version, expected $version+$build" >&2
+            exit 1
+          fi
+
+          if [[ "$build_data" != "$build" ]]; then
+            echo "BuildData.build contains $build_data, expected $build" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "21"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Resolve locked dependencies
+        env:
+          PUB_HOSTED_URL: https://pub.dev
+        run: flutter pub get --enforce-lockfile
+
+      - name: Analyze
+        run: flutter analyze lib test
+
+      - name: Test
+        run: flutter test
+
+      - name: Restore release signing key
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$KEYSTORE_BASE64" || -z "$STORE_PASSWORD" || -z "$KEY_PASSWORD" || -z "$KEY_ALIAS" ]]; then
+            echo "Android signing secrets are incomplete." >&2
+            exit 1
+          fi
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/serverbox-release.jks
+          {
+            printf 'storePassword=%s\n' "$STORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'storeFile=serverbox-release.jks\n'
+          } > android/key.properties
+
+      - name: Build signed arm64 APK
+        shell: bash
+        run: |
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --target-platform android-arm64 \
+            --build-name "${{ steps.version.outputs.version }}" \
+            --build-number "${{ steps.version.outputs.build }}"
+
+      - name: Verify signature and package metadata
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_apk="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
+          release_apk="build/app/outputs/flutter-apk/ServerBox-Android-${{ steps.version.outputs.tag }}-arm64-v8a.apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          aapt="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
+
+          test -f "$source_apk"
+          test -x "$apksigner"
+          test -x "$aapt"
+
+          signing_output="$("$apksigner" verify --verbose --print-certs "$source_apk")"
+          printf '%s\n' "$signing_output"
+
+          actual_digest="$(
+            printf '%s\n' "$signing_output" |
+              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+              head -n 1 |
+              tr '[:lower:]' '[:upper:]'
+          )"
+          expected_digest="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ':')"
+
+          if [[ "$actual_digest" != "$expected_digest" ]]; then
+            echo "Unexpected signing certificate: $actual_digest" >&2
+            exit 1
+          fi
+
+          "$aapt" dump badging "$source_apk" | head -n 4
+          mv "$source_apk" "$release_apk"
+          sha256sum "$release_apk" > "$release_apk.sha256"
+
+          echo "apk=$release_apk" >> "$GITHUB_OUTPUT"
+          echo "checksum=$release_apk.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ServerBox-Android-${{ steps.version.outputs.tag }}
+          path: |
+            ${{ steps.artifact.outputs.apk }}
+            ${{ steps.artifact.outputs.checksum }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ServerBox Android ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            Android-only personal fork of lollipopkit/flutter_server_box.
+
+            - ABI: arm64-v8a
+            - Target SDK: 36
+            - Signing certificate SHA-256: `${{ env.EXPECTED_CERT_SHA256 }}`
+
+            See the repository README for fork-specific features and installation notes.
+          files: |
+            ${{ steps.artifact.outputs.apk }}
+            ${{ steps.artifact.outputs.checksum }}

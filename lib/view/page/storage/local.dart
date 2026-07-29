@@ -17,6 +17,7 @@ import 'package:server_box/data/res/store.dart';
 import 'package:server_box/view/page/storage/file_pane_controller.dart';
 import 'package:server_box/view/page/storage/sftp.dart';
 import 'package:server_box/view/page/storage/sftp_mission.dart';
+import 'package:server_box/view/widget/file_list_metadata.dart';
 import 'package:server_box/view/widget/file_type_icon.dart';
 import 'package:server_box/view/widget/glass_context_menu.dart';
 import 'package:server_box/view/widget/glass_surface.dart';
@@ -65,6 +66,7 @@ class _LocalFilePageState extends ConsumerState<LocalFilePage>
       _getEntities();
   List<(FileSystemEntity, FileStat)> _visibleEntities = [];
   final Set<String> _selectedPaths = {};
+  final Set<String> _openingPaths = {};
   bool _selectionMode = false;
   bool get isPickFile => widget.args?.isPickFile ?? false;
   bool _awaitingStorageAccess = false;
@@ -165,12 +167,34 @@ class _LocalFilePageState extends ConsumerState<LocalFilePage>
     );
   }
 
-  void _changePath(String value) {
+  Future<void> _changePath(String value) async {
     _pathFocusNode.unfocus();
     _path.update(value);
+    if (!await _directoryExistsWithRetry(_path.path)) {
+      _path.undo();
+      _syncPathController();
+      if (mounted) {
+        context.showSnackBar('${libL10n.open} ${libL10n.fail}');
+      }
+      return;
+    }
     _clearSelection();
     _syncPathController();
-    _refresh();
+    await _refresh();
+  }
+
+  Future<bool> _directoryExistsWithRetry(String path) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (await Directory(path).exists()) return true;
+      } on FileSystemException {
+        // Retry once; a mounted/removable storage provider may be settling.
+      }
+      if (attempt == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+    }
+    return false;
   }
 
   Future<void> _goHome() async {
@@ -611,12 +635,15 @@ class _LocalFilePageState extends ConsumerState<LocalFilePage>
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        Offset? pressPosition;
         final compact = constraints.maxWidth < 420;
-        final modified = stat.modified.ymdhms();
+        final modified = formatFileListModified(stat.modified);
+        final size = formatFileListSize(stat.size);
+        final embeddedMetadata = isDir
+            ? modified
+            : '$modified  $size';
         final subtitleParts = <String>[
           if (serverName != null) fileName,
-          if (!isDir) stat.size.bytes2Str,
+          if (!isDir) size,
           if (compact) modified,
         ];
         final selected = _selectedPaths.contains(file.path);
@@ -646,23 +673,20 @@ class _LocalFilePageState extends ConsumerState<LocalFilePage>
                   ),
             title: Text(
               serverName ?? fileName,
-              maxLines: 1,
+              maxLines: widget.embedded ? 2 : 1,
               overflow: TextOverflow.ellipsis,
               style: widget.embedded
                   ? Theme.of(context).textTheme.bodyMedium
                   : null,
             ),
-            subtitle: widget.embedded || subtitleParts.isEmpty
+            subtitle: widget.embedded
+                ? FileListMetadata(text: embeddedMetadata)
+                : subtitleParts.isEmpty
                 ? null
                 : Text(subtitleParts.join('\n'), style: UIs.textGrey),
             trailing: compact || widget.embedded
                 ? null
                 : Text(modified, style: UIs.textGrey),
-            onLongPress: () => _showLocalItemMenu(
-              file,
-              isDir: isDir,
-              anchor: pressPosition ?? Offset.zero,
-            ),
             onTap: () {
               if (_selectionMode) {
                 _toggleSelected(file.path);
@@ -691,8 +715,13 @@ class _LocalFilePageState extends ConsumerState<LocalFilePage>
           child: tile,
               )
             : CardX(child: tile);
-        return Listener(
-          onPointerDown: (event) => pressPosition = event.position,
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onLongPressStart: (details) => _showLocalItemMenu(
+            file,
+            isDir: isDir,
+            anchor: details.globalPosition,
+          ),
           child: child,
         );
       },
@@ -749,13 +778,40 @@ class _LocalFilePageState extends ConsumerState<LocalFilePage>
   }
 
   Future<List<(FileSystemEntity, FileStat)>> _getEntities() async {
-    final files = await Directory(_path.path).list().toList();
-    final stats = await Future.wait(
-      files.map((e) async => (e, await e.stat())),
-    );
-    stats.sort(_sortType.value.compareTuple);
-    _visibleEntities = stats;
-    return stats;
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final files = await Directory(_path.path).list().toList();
+        final nullableStats = await Future.wait(
+          files.map((entity) async {
+            try {
+              final stat = await entity.stat();
+              if (stat.type == FileSystemEntityType.notFound) return null;
+              return (entity, stat);
+            } on FileSystemException {
+              // A file can disappear between list() and stat(). Ignore only
+              // that stale row instead of failing the whole directory.
+              return null;
+            }
+          }),
+        );
+        final stats = <(FileSystemEntity, FileStat)>[];
+        for (final item in nullableStats) {
+          if (item != null) stats.add(item);
+        }
+        stats.sort(_sortType.value.compareTuple);
+        _visibleEntities = stats;
+        return stats;
+      } catch (error, stackTrace) {
+        lastError = error;
+        lastStackTrace = stackTrace;
+        if (attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 160));
+        }
+      }
+    }
+    Error.throwWithStackTrace(lastError!, lastStackTrace!);
   }
 
   Widget _buildSortBtn() {
@@ -897,42 +953,75 @@ extension _OnTapFile on _LocalFilePageState {
     bool popMenu = true,
   }) async {
     if (popMenu) context.pop();
-    final stat = await file.stat();
-    if (stat.size > Miscs.editorMaxSize) {
-      context.showRoundDialog(
-        title: libL10n.attention,
-        child: Text(l10n.fileTooLarge(fileName, stat.size, '1m')),
-      );
-      return;
-    }
+    final path = file.absolute.path;
+    if (!_openingPaths.add(path)) return;
+    try {
+      final stat = await _validatedFileStat(file);
+      if (stat == null) {
+        if (mounted) {
+          context.showSnackBar('${libL10n.open} ${libL10n.fail}: $fileName');
+          await _refresh();
+        }
+        return;
+      }
+      if (stat.size > Miscs.editorMaxSize) {
+        context.showRoundDialog(
+          title: libL10n.attention,
+          child: Text(l10n.fileTooLarge(fileName, stat.size, '1m')),
+        );
+        return;
+      }
 
-    await EditorPage.route.go(
-      context,
-      args: EditorPageArgs(
-        path: file.absolute.path,
-        onSave: (_) {
-          context.showSnackBar(libL10n.saved);
-          setStateSafe(() {});
-        },
-        closeAfterSave: Stores.setting.closeAfterSave.fetch(),
-        softWrap: Stores.setting.editorSoftWrap.fetch(),
-        enableHighlight: Stores.setting.editorHighlight.fetch(),
-        softWrapLabel: l10n.softWrap,
-        highlightLabel: l10n.highlight,
-        externalFileOpener: MethodChans.openFileExternally,
-        lightTheme: HighlightTheme.fromThemeMapKey(
-          Stores.setting.editorTheme.fetch(),
+      await EditorPage.route.go(
+        context,
+        args: EditorPageArgs(
+          path: path,
+          onSave: (_) {
+            context.showSnackBar(libL10n.saved);
+            setStateSafe(() {});
+          },
+          closeAfterSave: Stores.setting.closeAfterSave.fetch(),
+          softWrap: Stores.setting.editorSoftWrap.fetch(),
+          enableHighlight: Stores.setting.editorHighlight.fetch(),
+          softWrapLabel: l10n.softWrap,
+          highlightLabel: l10n.highlight,
+          externalFileOpener: MethodChans.openFileExternally,
+          lightTheme: HighlightTheme.fromThemeMapKey(
+            Stores.setting.editorTheme.fetch(),
+          ),
+          darkTheme: HighlightTheme.fromThemeMapKey(
+            Stores.setting.editorDarkTheme.fetch(),
+          ),
+          fontFamily: () {
+            final font = Stores.setting.editorFontFamily.fetch();
+            return font.isEmpty ? null : font;
+          }(),
+          fontSize: Stores.setting.editorFontSize.fetch(),
         ),
-        darkTheme: HighlightTheme.fromThemeMapKey(
-          Stores.setting.editorDarkTheme.fetch(),
-        ),
-        fontFamily: () {
-          final font = Stores.setting.editorFontFamily.fetch();
-          return font.isEmpty ? null : font;
-        }(),
-        fontSize: Stores.setting.editorFontSize.fetch(),
-      ),
-    );
+      );
+    } catch (error, stackTrace) {
+      if (mounted) context.showErrDialog(error, stackTrace);
+    } finally {
+      _openingPaths.remove(path);
+    }
+  }
+
+  Future<FileStat?> _validatedFileStat(FileSystemEntity file) async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final type = await FileSystemEntity.type(file.path, followLinks: true);
+        if (type == FileSystemEntityType.notFound) return null;
+        if (type != FileSystemEntityType.file) return null;
+        final stat = await file.stat();
+        if (stat.type == FileSystemEntityType.file) return stat;
+      } on FileSystemException {
+        if (attempt > 0) rethrow;
+      }
+      if (attempt == 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+    }
+    return null;
   }
 
   void _onTapUpload(

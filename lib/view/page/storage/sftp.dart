@@ -26,6 +26,8 @@ import 'package:server_box/view/page/ssh/page/page.dart';
 import 'package:server_box/view/page/storage/file_pane_controller.dart';
 import 'package:server_box/view/page/storage/local.dart';
 import 'package:server_box/view/page/storage/sftp_mission.dart';
+import 'package:server_box/view/widget/expressive_loading_indicator.dart';
+import 'package:server_box/view/widget/file_list_metadata.dart';
 import 'package:server_box/view/widget/file_type_icon.dart';
 import 'package:server_box/view/widget/glass_context_menu.dart';
 import 'package:server_box/view/widget/glass_surface.dart';
@@ -57,6 +59,7 @@ final class SftpPageArgs {
 
 class SftpPage extends ConsumerStatefulWidget {
   final SftpPageArgs args;
+  final SSHClient? client;
   final bool embedded;
   final FilePaneController? paneController;
   final FilePaneController? transferTargetController;
@@ -64,6 +67,7 @@ class SftpPage extends ConsumerStatefulWidget {
   const SftpPage({
     super.key,
     required this.args,
+    this.client,
     this.embedded = false,
     this.paneController,
     this.transferTargetController,
@@ -80,13 +84,13 @@ class SftpPage extends ConsumerStatefulWidget {
 
 class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
   late final SftpBrowserStatus _status;
-  late final SSHClient _client;
-  late final SftpSudoHelper _sudoHelper;
+  late SSHClient _client;
+  late SftpSudoHelper _sudoHelper;
   final _sortOption = _SortOption().vn;
   final _sudoMode = false.vn;
   final _pathController = TextEditingController(text: '/');
   final _pathFocusNode = FocusNode();
-  bool _isInitialLoading = true;
+  bool _isDirectoryLoading = true;
   int _filesVersion = 0;
   int _sortedFilesVersion = -1;
   _SortOption? _sortedFilesOption;
@@ -94,6 +98,7 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
   List<SftpName>? _sortedFilesCache;
   Future<SftpClient>? _openingClientFuture;
   final Set<String> _selectedNames = {};
+  final Set<String> _openingRemotePaths = {};
   bool _selectionMode = false;
 
   bool get _useSudo => _sudoHelper.enabled && _sudoMode.value;
@@ -102,13 +107,9 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
   void initState() {
     super.initState();
     final serverState = ref.read(serverProvider(widget.args.spi.id));
-    _client = serverState.client!;
+    _client = widget.client ?? serverState.client!;
     _status = SftpBrowserStatus();
-    _sudoHelper = SftpSudoHelper(
-      client: _client,
-      spi: widget.args.spi,
-      contextProvider: () => mounted ? context : null,
-    );
+    _sudoHelper = _createSudoHelper(_client);
     widget.paneController?.attach(
       owner: this,
       path: _status.path.path,
@@ -161,6 +162,33 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
       body: _buildFileView(),
       bottomNavigationBar: _buildBottom(),
     );
+  }
+
+  SftpSudoHelper _createSudoHelper(SSHClient client) {
+    return SftpSudoHelper(
+      client: client,
+      spi: widget.args.spi,
+      contextProvider: () => mounted ? context : null,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant SftpPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final replacement = widget.client;
+    if (replacement == null ||
+        identical(replacement, _client) ||
+        !_client.isClosed) {
+      return;
+    }
+    _status.client?.close();
+    _status.client = null;
+    _openingClientFuture = null;
+    _client = replacement;
+    _sudoHelper = _createSudoHelper(replacement);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_listDir());
+    });
   }
 
   Widget _buildEmbeddedFilePane(List<Widget> actions) {
@@ -373,7 +401,7 @@ extension _UI on _SftpPageState {
                   child: TextField(
                     controller: _pathController,
                     focusNode: _pathFocusNode,
-                    enabled: !_isInitialLoading,
+                    enabled: !_isDirectoryLoading,
                     keyboardType: TextInputType.url,
                     textInputAction: TextInputAction.go,
                     autocorrect: false,
@@ -402,7 +430,7 @@ extension _UI on _SftpPageState {
                   visualDensity: widget.embedded
                       ? VisualDensity.compact
                       : null,
-                  onPressed: _isInitialLoading
+                  onPressed: _isDirectoryLoading
                       ? null
                       : () => _openPathFromEditor(_pathController.text),
                   icon: Icon(
@@ -673,8 +701,8 @@ extension _UI on _SftpPageState {
   }
 
   Widget _buildFileView() {
-    if (_isInitialLoading) {
-      return const Center(child: CircularProgressIndicator());
+    if (_isDirectoryLoading) {
+      return const Center(child: ExpressiveLoadingIndicator());
     }
     if (_status.files.isEmpty) return Center(child: Text(libL10n.empty));
 
@@ -706,11 +734,15 @@ extension _UI on _SftpPageState {
     final isDir = file.attr.isDirectory;
     return LayoutBuilder(
       builder: (context, constraints) {
-        Offset? pressPosition;
         final compact = constraints.maxWidth < 390;
         final modified = _getTime(file.attr.modifyTime);
         final mode = file.attr.mode?.str ?? '';
-        final size = (file.attr.size ?? 0).bytes2Str;
+        final size = formatFileListSize(file.attr.size ?? 0);
+        final embeddedMetadata = file.filename == '..'
+            ? null
+            : isDir
+            ? modified
+            : '$modified  $size';
         final selected = _selectedNames.contains(file.filename);
         final tile = ListTile(
             dense: widget.embedded,
@@ -738,7 +770,7 @@ extension _UI on _SftpPageState {
                   ),
             title: Text(
               file.filename,
-              maxLines: 1,
+              maxLines: widget.embedded ? 2 : 1,
               overflow: TextOverflow.ellipsis,
               style: widget.embedded
                   ? Theme.of(context).textTheme.bodyMedium
@@ -752,7 +784,9 @@ extension _UI on _SftpPageState {
                     textAlign: TextAlign.right,
                   ),
             subtitle: widget.embedded
-                ? null
+                ? embeddedMetadata == null
+                      ? null
+                      : FileListMetadata(text: embeddedMetadata)
                 : compact
                 ? Text(
                     [if (!isDir) size, modified, mode]
@@ -770,17 +804,10 @@ extension _UI on _SftpPageState {
                 return;
               }
               if (isDir) {
-                _pathFocusNode.unfocus();
-                _clearSelection();
-                _status.path.path = file.filename;
-                _listDir();
+                unawaited(_openRemoteDirectory(file));
               } else {
-                _edit(file, popMenu: false);
+                unawaited(_edit(file, popMenu: false));
               }
-            },
-            onLongPress: () {
-              beforeTap?.call();
-              _onItemPress(file, !isDir, pressPosition ?? Offset.zero);
             },
           );
         final child = widget.embedded
@@ -797,8 +824,12 @@ extension _UI on _SftpPageState {
                 child: tile,
               )
             : CardX(child: tile);
-        return Listener(
-          onPointerDown: (event) => pressPosition = event.position,
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onLongPressStart: (details) {
+            beforeTap?.call();
+            _onItemPress(file, !isDir, details.globalPosition);
+          },
           child: child,
         );
       },
@@ -1040,6 +1071,8 @@ extension _Actions on _SftpPageState {
     if (popMenu) context.pop();
 
     final remotePath = _getRemotePath(name);
+    if (!_openingRemotePaths.add(remotePath)) return;
+    try {
     final useSudoForEdit = _useSudo;
 
     // #489
@@ -1071,17 +1104,14 @@ extension _Actions on _SftpPageState {
       if (!await ensureHostKeyAcceptedForSftp(context, widget.args.spi)) {
         return;
       }
-      if (size == null) {
-        final (attrs, err) = await context.showLoadingDialog(
-          fn: () => withSftpOpTimeout(
-            'stat edit file',
-            _status.client!.stat(remotePath),
-            _sftpOpTimeout,
-          ),
-        );
-        if (attrs == null || err != null) return;
-        size = attrs.size;
+      final (attrs, err) = await context.showLoadingDialog(
+        fn: () => _statRemoteFileWithRetry(remotePath),
+      );
+      if (attrs == null || err != null || attrs.isDirectory) {
+        unawaited(_listDir(null, true));
+        return;
       }
+      size = attrs.size;
     }
 
     if (size == null || size > Miscs.editorMaxSize) {
@@ -1109,16 +1139,12 @@ extension _Actions on _SftpPageState {
       );
       if (suc == null || err != null) return;
     } else {
-      final completer = Completer<bool>();
-      final req = SftpReq(
-        widget.args.spi,
-        remotePath,
-        localPath,
-        SftpReqType.download,
-      );
-      ref.read(sftpProvider.notifier).add(req, completer: completer);
       final (suc, err) = await context.showLoadingDialog(
-        fn: () => completer.future,
+        fn: () => _downloadEditorCopyWithRetry(
+          remotePath: remotePath,
+          localPath: localPath,
+          expectedSize: size!,
+        ),
       );
       if (suc != true || err != null) return;
     }
@@ -1199,6 +1225,11 @@ extension _Actions on _SftpPageState {
       if (!preserveTemporaryCopy && !backgroundUploadPending) {
         await _deleteTemporaryEditFile(localPath);
       }
+    }
+    } catch (error, stackTrace) {
+      if (mounted) context.showErrDialog(error, stackTrace);
+    } finally {
+      _openingRemotePaths.remove(remotePath);
     }
   }
 
@@ -1437,6 +1468,121 @@ extension _Actions on _SftpPageState {
     );
   }
 
+  Future<SftpClient> _ensureBrowserClient() async {
+    final current = _status.client;
+    if (current != null) return current;
+
+    final opening = _openingClientFuture ??=
+        withSftpSessionOpenTimeout(
+          'open browser session',
+          _client.sftp(),
+          _sftpOpTimeout,
+        );
+    try {
+      final opened = await opening;
+      return _status.client ??= opened;
+    } finally {
+      if (identical(_openingClientFuture, opening)) {
+        _openingClientFuture = null;
+      }
+    }
+  }
+
+  void _resetBrowserClient() {
+    _status.client?.close();
+    _status.client = null;
+    _openingClientFuture = null;
+  }
+
+  bool _isTransientSftpError(Object error) {
+    if (error is FileSystemException || error is FormatException) return false;
+    if (error is SftpStatusError) {
+      // 2 = no such file, 3 = permission denied. Retrying those would only
+      // duplicate work; channel/failure/connection statuses may recover.
+      return error.code != 2 && error.code != 3;
+    }
+    return true;
+  }
+
+  Future<SftpFileAttrs> _statRemoteFileWithRetry(String remotePath) async {
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final sftp = await _ensureBrowserClient();
+        return await withSftpOpTimeout(
+          'stat edit file',
+          sftp.stat(remotePath),
+          _sftpOpTimeout,
+        );
+      } catch (error, stackTrace) {
+        lastError = error;
+        lastStackTrace = stackTrace;
+        if (attempt > 0 || !_isTransientSftpError(error)) {
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+        _resetBrowserClient();
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+      }
+    }
+    Error.throwWithStackTrace(lastError!, lastStackTrace!);
+  }
+
+  Future<bool> _downloadEditorCopyWithRetry({
+    required String remotePath,
+    required String localPath,
+    required int expectedSize,
+  }) async {
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      SftpFile? remoteFile;
+      try {
+        final sftp = await _ensureBrowserClient();
+        final openedRemoteFile = await withSftpOpTimeout(
+          'open edit file',
+          sftp.open(remotePath),
+          _sftpOpTimeout,
+        );
+        remoteFile = openedRemoteFile;
+        final bytes = await withSftpOpTimeout(
+          'read edit file',
+          openedRemoteFile.readBytes(length: expectedSize),
+          _sftpOpTimeout,
+        );
+        if (bytes.length != expectedSize) {
+          throw SftpError(
+            'Incomplete editor download: '
+            '${bytes.length} of $expectedSize bytes',
+          );
+        }
+
+        final localFile = File(localPath);
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(bytes, flush: true);
+        if (!await localFile.exists() ||
+            await localFile.length() != expectedSize) {
+          throw FileSystemException(
+            'Downloaded editor copy failed validation',
+            localPath,
+          );
+        }
+        return true;
+      } catch (error, stackTrace) {
+        lastError = error;
+        lastStackTrace = stackTrace;
+        if (attempt > 0 || !_isTransientSftpError(error)) {
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+        _resetBrowserClient();
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+      } finally {
+        await remoteFile?.close();
+      }
+    }
+    Error.throwWithStackTrace(lastError!, lastStackTrace!);
+  }
+
   Future<void> _deleteTemporaryEditFile(String localPath) async {
     try {
       final file = File(localPath);
@@ -1590,20 +1736,6 @@ extension _Actions on _SftpPageState {
       return false;
     }
 
-    if (_isInitialLoading) {
-      try {
-        return await loadDirectory();
-      } catch (e, s) {
-        if (context.mounted) context.showErrDialog(e, s);
-        return false;
-      } finally {
-        if (mounted) {
-          // ignore: invalid_use_of_protected_member
-          setState(() => _isInitialLoading = false);
-        }
-      }
-    }
-
     if (silent) {
       try {
         return await loadDirectory();
@@ -1613,14 +1745,43 @@ extension _Actions on _SftpPageState {
       }
     }
 
-    final (ret, err) = await context.showLoadingDialog(
-      fn: loadDirectory,
-      barrierDismiss: true,
-    );
-    return ret ?? err == null;
+    if (mounted && !_isDirectoryLoading) {
+      // ignore: invalid_use_of_protected_member
+      setState(() => _isDirectoryLoading = true);
+    }
+    try {
+      return await loadDirectory();
+    } catch (e, s) {
+      if (context.mounted) context.showErrDialog(e, s);
+      return false;
+    } finally {
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() => _isDirectoryLoading = false);
+      }
+    }
   }
 
   Future<List<SftpName>?> _listDirWithFallback(String listPath) async {
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await _listDirWithFallbackOnce(listPath);
+      } catch (error, stackTrace) {
+        lastError = error;
+        lastStackTrace = stackTrace;
+        if (attempt > 0 || !_isTransientSftpError(error)) {
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+        _resetBrowserClient();
+        await Future<void>.delayed(const Duration(milliseconds: 180));
+      }
+    }
+    Error.throwWithStackTrace(lastError!, lastStackTrace!);
+  }
+
+  Future<List<SftpName>?> _listDirWithFallbackOnce(String listPath) async {
     if (_useSudo) {
       final pwd = await _sudoHelper.ensurePassword();
       if (pwd == null) return null;
@@ -1630,21 +1791,11 @@ extension _Actions on _SftpPageState {
     }
 
     try {
-      if (_status.client == null && _openingClientFuture == null) {
-        _openingClientFuture = withSftpSessionOpenTimeout(
-          'open browser session',
-          _client.sftp(),
-          _sftpOpTimeout,
-        );
-      }
-      _status.client ??= await _openingClientFuture;
-      _openingClientFuture = null;
+      final browserClient = await _ensureBrowserClient();
       if (!mounted) return null;
-      final client = _status.client;
-      if (client == null) return null;
       return await withSftpOpTimeout(
         'list directory',
-        client.listdir(listPath),
+        browserClient.listdir(listPath),
         _sftpOpTimeout,
       );
     } on SftpStatusError catch (e) {
@@ -1660,10 +1811,7 @@ extension _Actions on _SftpPageState {
       _sudoMode.value = true;
       return items;
     } catch (e) {
-      if (e is! SftpStatusError) {
-        _status.client?.close();
-        _status.client = null;
-      }
+      if (e is! SftpStatusError) _resetBrowserClient();
       _openingClientFuture = null;
       rethrow;
     }
@@ -1849,5 +1997,19 @@ extension _Actions on _SftpPageState {
     if (success && Stores.setting.recordHistory.fetch()) {
       Stores.history.sftpGoPath.add(_status.path.path);
     }
+  }
+
+  Future<void> _openRemoteDirectory(SftpName directory) async {
+    _pathFocusNode.unfocus();
+    _clearSelection();
+    _status.path.path = directory.filename;
+    final opened = await _listDir();
+    if (opened == true || !mounted) return;
+
+    // The row may be stale or the SFTP channel may have dropped. Restore the
+    // last valid directory so one failed tap cannot strand the remote pane.
+    _status.path.undo();
+    _syncPathController();
+    await _listDir(null, true);
   }
 }

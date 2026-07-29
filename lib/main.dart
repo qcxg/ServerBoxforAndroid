@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:logging/logging.dart';
 import 'package:server_box/app.dart';
+import 'package:server_box/core/chan.dart';
 import 'package:server_box/data/model/app/menu/server_func.dart';
 import 'package:server_box/data/model/app/server_detail_card.dart';
 import 'package:server_box/data/res/build_data.dart';
@@ -39,6 +40,11 @@ Future<void> _runInZone(Future<void> Function() body) async {
 
 Future<void> _initApp() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (isAndroid) {
+    TextNoticePresenter.show = (message) {
+      unawaited(MethodChans.showToast(message));
+    };
+  }
 
   await _initData();
   _setupDebug();

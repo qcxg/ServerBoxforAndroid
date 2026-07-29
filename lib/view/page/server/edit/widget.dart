@@ -545,6 +545,7 @@ extension _Widgets on _ServerEditPageState {
           ),
           actions: Btn.ok(
             onTap: () async {
+              FocusManager.instance.primaryFocus?.unfocus();
               context.pop();
               await ref.read(serversProvider.notifier).delServer(spi!.id);
               if (!mounted) return;

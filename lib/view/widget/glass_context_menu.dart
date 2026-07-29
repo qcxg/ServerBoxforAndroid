@@ -23,6 +23,14 @@ Future<void> showGlassContextMenu(
   required List<GlassContextMenuAction> actions,
 }) async {
   if (actions.isEmpty) return;
+  final overlayRenderObject = Overlay.of(
+    context,
+    rootOverlay: true,
+  ).context.findRenderObject();
+  final overlayBox = overlayRenderObject is RenderBox
+      ? overlayRenderObject
+      : null;
+  final localAnchor = overlayBox?.globalToLocal(anchor) ?? anchor;
   await showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -36,12 +44,15 @@ Future<void> showGlassContextMenu(
       final safeLeft = media.padding.left + 8;
       final safeRight = media.size.width - media.padding.right - 8;
       final safeTop = media.padding.top + 8;
-      final safeBottom = media.size.height - media.padding.bottom - 8;
-      var left = anchor.dx + 10;
-      if (left + width > safeRight) left = anchor.dx - width - 10;
+      final bottomInset = media.viewInsets.bottom > media.padding.bottom
+          ? media.viewInsets.bottom
+          : media.padding.bottom;
+      final safeBottom = media.size.height - bottomInset - 8;
+      var left = localAnchor.dx + 10;
+      if (left + width > safeRight) left = localAnchor.dx - width - 10;
       left = left.clamp(safeLeft, safeRight - width).toDouble();
-      var top = anchor.dy + 8;
-      if (top + height > safeBottom) top = anchor.dy - height - 8;
+      var top = localAnchor.dy + 8;
+      if (top + height > safeBottom) top = localAnchor.dy - height - 8;
       top = top.clamp(safeTop, safeBottom - height).toDouble();
 
       return Material(
@@ -111,10 +122,7 @@ Future<void> showGlassContextMenu(
         curve: Curves.easeOutCubic,
         reverseCurve: Curves.easeInCubic,
       );
-      return FadeTransition(
-        opacity: curved,
-        child: ScaleTransition(scale: Tween(begin: 0.96, end: 1.0).animate(curved), child: child),
-      );
+      return FadeTransition(opacity: curved, child: child);
     },
   );
 }

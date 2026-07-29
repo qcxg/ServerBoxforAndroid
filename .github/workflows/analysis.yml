@@ -1,73 +1,62 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
-name: flutter analysis
+name: Android CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
 
 permissions:
   contents: read
 
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  FLUTTER_VERSION: '3.44.4'
+  FLUTTER_VERSION: "3.44.6"
 
 jobs:
-  reproducibilityCheck:
-    name: Reproducibility check
+  verify:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout source and submodules
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
           submodules: recursive
           persist-credentials: false
 
-      - uses: subosito/flutter-action@v2
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
-      - name: Check locked dependencies
+      - name: Resolve locked dependencies
         env:
           PUB_HOSTED_URL: https://pub.dev
-        run: |
-          flutter pub get --enforce-lockfile
-          git diff --exit-code -- pubspec.yaml pubspec.lock
+        run: flutter pub get --enforce-lockfile
 
-      - name: Check JNI build-id patch
-        run: scripts/release/patch-jni-build-id.sh
-
-  check:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-          submodules: recursive
-          persist-credentials: false
-      
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-
-      - name: Install dependencies
-        run: flutter pub get
-
-      # Consider passing '--fatal-infos' for slightly stricter analysis.
-      - name: Analyze project source
+      - name: Analyze
         run: flutter analyze lib test
 
-      # Your project will need to have tests in test/ and a dependency on
-      # package:test for this step to succeed. Note that Flutter projects will
-      # want to change this to 'flutter test'.
-      - name: Run tests
+      - name: Test app
         run: flutter test
+
+      - name: Test customized fl_lib
+        run: |
+          flutter test \
+            packages/fl_lib/test/editor_page_test.dart \
+            packages/fl_lib/test/highlights_test.dart \
+            packages/fl_lib/test/text_notice_presenter_test.dart
+
+      - name: Test customized xterm
+        working-directory: packages/xterm
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter test \
+            test/src/ui/custom_text_edit_test.dart \
+            test/src/ui/terminal_view_key_repeat_test.dart

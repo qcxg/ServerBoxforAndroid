@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:dartssh2/dartssh2.dart';
 import 'package:fl_lib/fl_lib.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,7 @@ import 'package:server_box/view/page/storage/file_pane_controller.dart';
 import 'package:server_box/view/page/storage/local.dart';
 import 'package:server_box/view/page/storage/sftp.dart';
 import 'package:server_box/view/widget/glass_surface.dart';
+import 'package:server_box/view/widget/server_reachability_dot.dart';
 
 class FileWorkspacePage extends ConsumerStatefulWidget {
   const FileWorkspacePage({super.key});
@@ -32,6 +34,7 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
     FilePaneSide.local,
   );
   final Map<String, FilePaneController> _remotePaneControllers = {};
+  final Map<String, SSHClient> _remoteClients = {};
   String? _selectedServerId;
   FilePaneSide _activePane = FilePaneSide.local;
   int _handledLinkRevision = -1;
@@ -55,9 +58,14 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
   Widget build(BuildContext context) {
     super.build(context);
     final serverState = ref.watch(serversProvider);
-    _openedServerIds.removeWhere(
-      (id) => !serverState.servers.containsKey(id),
-    );
+    final removedIds = _openedServerIds
+        .where((id) => !serverState.servers.containsKey(id))
+        .toList(growable: false);
+    _openedServerIds.removeWhere((id) => removedIds.contains(id));
+    for (final id in removedIds) {
+      _remotePaneControllers.remove(id);
+      _remoteClients.remove(id);
+    }
     if (_selectedServerId != null &&
         !serverState.servers.containsKey(_selectedServerId)) {
       _selectedServerId = null;
@@ -70,6 +78,10 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
         : _remotePaneControllers[_selectedServerId];
 
     return Scaffold(
+      // Keep the shared glass toolbar anchored to the physical bottom. The
+      // editable path bars live at the top, so lifting the whole workspace
+      // above the IME only makes the toolbar jump over the file list.
+      resizeToAvoidBottomInset: false,
       appBar: _FileServerTabBar(
         openedServerIds: _openedServerIds,
         selectedServerId: _selectedServerId,
@@ -118,9 +130,7 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
                       onPointerDown: (_) =>
                           _activatePane(FilePaneSide.remote),
                       child: _FilePaneCard(
-                        key: ValueKey(
-                          'remote-file-pane-${_selectedServerId ?? 'selector'}',
-                        ),
+                        key: const ValueKey('remote-file-pane'),
                         side: FilePaneSide.remote,
                         active: _activePane == FilePaneSide.remote,
                         child: remote,
@@ -154,38 +164,47 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
 
   Widget _buildRemotePane(ServersState serverState) {
     final selectedId = _selectedServerId;
-    if (selectedId == null) {
-      return _FileServerSelector(onSelected: _openServer);
-    }
-
-    final selectedIndex = _openedServerIds.indexOf(selectedId);
-    if (selectedIndex < 0) {
-      return _FileServerSelector(onSelected: _openServer);
-    }
+    final selectedIndex = selectedId == null
+        ? -1
+        : _openedServerIds.indexOf(selectedId);
+    final selectorIndex = _openedServerIds.length;
 
     return IndexedStack(
-      index: selectedIndex,
-      children: _openedServerIds.map((id) {
-        final spi = serverState.servers[id];
-        if (spi == null) return const SizedBox.shrink();
-        final client = ref.watch(serverProvider(id)).client;
-        if (client == null) {
-          return _DisconnectedRemotePane(
-            spi: spi,
-            onReconnect: () => _openServer(spi, forceReconnect: true),
+      index: selectedIndex < 0 ? selectorIndex : selectedIndex,
+      children: [
+        ..._openedServerIds.map((id) {
+          final spi = serverState.servers[id];
+          if (spi == null) return const SizedBox.shrink();
+          final providerClient = ref.watch(
+            serverProvider(id).select((value) => value.client),
           );
-        }
-        return SftpPage(
-          key: ValueKey('sftp-pane-$id-${identityHashCode(client)}'),
-          args: SftpPageArgs(spi: spi),
-          embedded: true,
-          paneController: _remotePaneControllers.putIfAbsent(
-            id,
-            () => FilePaneController(FilePaneSide.remote),
-          ),
-          transferTargetController: _localPaneController,
-        );
-      }).toList(growable: false),
+          var client = _remoteClients[id];
+          if ((client == null || client.isClosed) &&
+              providerClient != null &&
+              !providerClient.isClosed) {
+            client = providerClient;
+            _remoteClients[id] = providerClient;
+          }
+          if (client == null || client.isClosed) {
+            return _DisconnectedRemotePane(
+              spi: spi,
+              onReconnect: () => _openServer(spi, forceReconnect: true),
+            );
+          }
+          return SftpPage(
+            key: ValueKey('sftp-pane-$id'),
+            args: SftpPageArgs(spi: spi),
+            client: client,
+            embedded: true,
+            paneController: _remotePaneControllers.putIfAbsent(
+              id,
+              () => FilePaneController(FilePaneSide.remote),
+            ),
+            transferTargetController: _localPaneController,
+          );
+        }),
+        _FileServerSelector(onSelected: _openServer),
+      ],
     );
   }
 
@@ -208,6 +227,8 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
     if (removedIndex < 0) return;
     setState(() {
       _openedServerIds.removeAt(removedIndex);
+      _remoteClients.remove(id);
+      _remotePaneControllers.remove(id);
       if (_selectedServerId == id) {
         _selectedServerId = _openedServerIds.isEmpty
             ? null
@@ -221,6 +242,10 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
     bool forceReconnect = false,
   }) async {
     var serverState = ref.read(serverProvider(spi.id));
+    if (!forceReconnect &&
+        !await guardServerReachability(context, spi, serverState.conn)) {
+      return;
+    }
     if (forceReconnect || serverState.client == null) {
       final (_, error) = await context.showLoadingDialog(
         fn: () async {
@@ -237,6 +262,7 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
     }
 
     setState(() {
+      _remoteClients[spi.id] = serverState.client!;
       if (!_openedServerIds.contains(spi.id)) {
         _openedServerIds.add(spi.id);
       }
@@ -257,15 +283,21 @@ class _FileWorkspacePageState extends ConsumerState<FileWorkspacePage>
   }
 
   Future<void> _openLinkedServer(Spi spi) async {
+    var serverState = ref.read(serverProvider(spi.id));
+    if (serverState.client == null) {
+      await ref.read(serverProvider(spi.id).notifier).refresh();
+      if (!mounted) return;
+      serverState = ref.read(serverProvider(spi.id));
+    }
     setState(() {
+      final client = serverState.client;
+      if (client != null) _remoteClients[spi.id] = client;
       if (!_openedServerIds.contains(spi.id)) {
         _openedServerIds.add(spi.id);
       }
       _selectedServerId = spi.id;
       _activePane = FilePaneSide.remote;
     });
-    if (ref.read(serverProvider(spi.id)).client != null) return;
-    await ref.read(serverProvider(spi.id).notifier).refresh();
   }
 
   void _activatePane(FilePaneSide side) {
@@ -489,7 +521,7 @@ final class _FileServerCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final conn = ref.watch(
+    final connection = ref.watch(
       serverProvider(spi.id).select((value) => value.conn),
     );
     const shape = RoundedSuperellipseBorder(
@@ -544,7 +576,7 @@ final class _FileServerCard extends ConsumerWidget {
                   ],
                 ),
               ),
-              _ConnectionDot(conn: conn),
+              ServerReachabilityDot(connection: connection),
             ],
           ),
         ),

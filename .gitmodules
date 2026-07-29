@@ -4,11 +4,11 @@
 	branch = master
 [submodule "xterm"]
 	path = packages/xterm
-	url = https://github.com/lollipopkit/xterm.dart
-	branch = master
+	url = https://github.com/qcxg/xterm.dart
+	branch = android-fork
 [submodule "fl_lib"]
 	path = packages/fl_lib
-	url = https://github.com/lollipopkit/fl_lib
+	url = https://github.com/qcxg/fl_lib
 	branch = main
 [submodule "fl_build"]
 	path = packages/fl_build

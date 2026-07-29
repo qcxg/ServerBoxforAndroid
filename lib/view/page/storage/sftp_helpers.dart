@@ -64,12 +64,12 @@ const _extCmdMap = {
   'zpaq': 'zpaq x FILE',
 };
 
-/// Return fmt: 2021-01-01 00:00:00
+/// Return fmt: 21-01-01 00:00
 String _getTime(int? unixMill) {
   if (unixMill == null) return '-';
-  return DateTime.fromMillisecondsSinceEpoch(
-    unixMill * 1000,
-  ).toString().replaceFirst('.000', '');
+  return formatFileListModified(
+    DateTime.fromMillisecondsSinceEpoch(unixMill * 1000),
+  );
 }
 
 enum _SortType {
