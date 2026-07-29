@@ -1031,4 +1031,15 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get snippetNameExists => 'A snippet with this name already exists.';
+
+  @override
+  String get unofficialForkNoticeTitle => 'Unofficial personal build';
+
+  @override
+  String get unofficialForkNoticeBody =>
+      'This version is independently maintained and is not affiliated with or supported by the original ServerBox team.';
+
+  @override
+  String get codexCustomizationNotice =>
+      'Fork-specific customization was implemented with Codex.';
 }

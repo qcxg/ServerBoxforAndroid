@@ -282,5 +282,8 @@
   "snippetUnsavedTitle": "片段尚未儲存",
   "snippetUnsavedDescription": "要捨棄對此片段所做的變更嗎？",
   "snippetDiscard": "捨棄變更",
-  "snippetNameExists": "已存在同名的片段。"
+  "snippetNameExists": "已存在同名的片段。",
+  "unofficialForkNoticeTitle": "個人維護的非官方版本",
+  "unofficialForkNoticeBody": "目前版本由個人獨立維護，與 ServerBox 原團隊無關，也不代表原團隊立場。",
+  "codexCustomizationNotice": "本分支的客製化修改由 Codex 完成。"
 }

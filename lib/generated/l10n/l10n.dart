@@ -1979,6 +1979,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'A snippet with this name already exists.'**
   String get snippetNameExists;
+
+  /// No description provided for @unofficialForkNoticeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unofficial personal build'**
+  String get unofficialForkNoticeTitle;
+
+  /// No description provided for @unofficialForkNoticeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This version is independently maintained and is not affiliated with or supported by the original ServerBox team.'**
+  String get unofficialForkNoticeBody;
+
+  /// No description provided for @codexCustomizationNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Fork-specific customization was implemented with Codex.'**
+  String get codexCustomizationNotice;
 }
 
 class _AppLocalizationsDelegate

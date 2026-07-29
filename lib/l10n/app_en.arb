@@ -322,5 +322,8 @@
   "snippetUnsavedTitle": "Unsaved snippet",
   "snippetUnsavedDescription": "Discard the changes made to this snippet?",
   "snippetDiscard": "Discard",
-  "snippetNameExists": "A snippet with this name already exists."
+  "snippetNameExists": "A snippet with this name already exists.",
+  "unofficialForkNoticeTitle": "Unofficial personal build",
+  "unofficialForkNoticeBody": "This version is independently maintained and is not affiliated with or supported by the original ServerBox team.",
+  "codexCustomizationNotice": "Fork-specific customization was implemented with Codex."
 }

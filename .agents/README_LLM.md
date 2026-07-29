@@ -274,6 +274,8 @@ Android 外部編輯由 App 層把 `MethodChans.openFileExternally` callback 注
 
 `lib/view/page/setting/entry.dart` 的 App 設定頁採懶建立的 M3E expansion sections，依 App、AI、Server、SSH、SFTP、Editor、Container、Full screen 分組。各 section 由 `ListView.builder` 建立，`maintainState: false`，收合後釋放內部 listener/widget；內容另有 `RepaintBoundary`，避免長設定頁一次建立及 repaint 全部選項。個別 `entries/*.dart` 只回傳該組內容，不可再自行套第二層大 Card，否則會恢復巢狀卡片與額外 layout 成本。logs/reset 收進頂欄 overflow menu，頂部 tab 使用 tonal pill 樣式，`TabBar.overlayColor` 必須保持透明且使用 `NoSplash`，避免選中膠囊之外再出現觸點動畫。這個限制只屬於設定頁小導航；首頁大導航已有自己的單一平移 indicator，不要因修小導航而改動它。
 
+設定的 About／貢獻者頁在 `lib/view/page/setting/about.dart`。頁首必須保留「個人維護的非官方版本、與原團隊無關、客製化由 Codex 完成」的本地化 M3E notice，接著才是 App identity 與 Wiki／feedback／license／sponsor actions；下方原始 Contributors、Participants、GPT Box 與 lollipopkit attribution 不得刪除。公開 `README.md`／`README_zh.md` 是面向一般使用者的 fork 介紹，不要混入針對單一問題的教學式問答。
+
 ## 本地套件與 submodules
 
 clone 後必須執行：

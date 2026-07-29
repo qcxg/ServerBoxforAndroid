@@ -1003,6 +1003,16 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get snippetNameExists => '已存在同名的片段。';
+
+  @override
+  String get unofficialForkNoticeTitle => '个人维护的非官方版本';
+
+  @override
+  String get unofficialForkNoticeBody =>
+      '当前版本由个人独立维护，与 ServerBox 原团队无关，也不代表原团队立场。';
+
+  @override
+  String get codexCustomizationNotice => '本分支的定制化修改由 Codex 完成。';
 }
 
 /// The translations for Chinese, as used in Taiwan (`zh_TW`).
@@ -1907,4 +1917,14 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get snippetNameExists => '已存在同名的片段。';
+
+  @override
+  String get unofficialForkNoticeTitle => '個人維護的非官方版本';
+
+  @override
+  String get unofficialForkNoticeBody =>
+      '目前版本由個人獨立維護，與 ServerBox 原團隊無關，也不代表原團隊立場。';
+
+  @override
+  String get codexCustomizationNotice => '本分支的客製化修改由 Codex 完成。';
 }
