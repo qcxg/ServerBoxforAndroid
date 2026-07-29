@@ -102,6 +102,12 @@ through this repository. Device-specific battery restrictions can still affect
 background networking, so disabling battery optimization may be necessary on
 some Android variants.
 
+> [!NOTE]
+> This fork exists solely as a personal-interest project. It has only been
+> tested on Pixel and Samsung devices running Android 16. Stability on other
+> devices is not guaranteed, and there is no guarantee that every reported
+> issue can or will be fixed.
+
 Issues should be reported to this fork when they concern its APK or customized
 behavior. Please do not ask the original ServerBox team to support this edition.
 
