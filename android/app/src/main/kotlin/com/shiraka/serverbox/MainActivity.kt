@@ -1,4 +1,4 @@
-package tech.lolli.toolbox
+package com.shiraka.serverbox
 
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -22,14 +22,14 @@ import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import android.appwidget.AppWidgetManager
-import tech.lolli.toolbox.widget.HomeWidget
+import com.shiraka.serverbox.widget.HomeWidget
 import java.io.File
 
 class MainActivity: FlutterFragmentActivity() {
     private lateinit var channel: MethodChannel
-    private val ACTION_UPDATE_SESSIONS = "tech.lolli.toolbox.ACTION_UPDATE_SESSIONS"
-    private val ACTION_DISCONNECT_SESSION = "tech.lolli.toolbox.ACTION_DISCONNECT_SESSION"
-    private val ACTION_STOP_ALL_CONNECTIONS = "tech.lolli.toolbox.STOP_ALL_CONNECTIONS"
+    private val ACTION_UPDATE_SESSIONS = "com.shiraka.serverbox.ACTION_UPDATE_SESSIONS"
+    private val ACTION_DISCONNECT_SESSION = "com.shiraka.serverbox.ACTION_DISCONNECT_SESSION"
+    private val ACTION_STOP_ALL_CONNECTIONS = "com.shiraka.serverbox.STOP_ALL_CONNECTIONS"
     private var stopAllReceiver: BroadcastReceiver? = null
     private var activeToast: Toast? = null
 
@@ -37,7 +37,7 @@ class MainActivity: FlutterFragmentActivity() {
         super.configureFlutterEngine(flutterEngine)
         val binaryMessenger = flutterEngine.dartExecutor.binaryMessenger
 
-        channel = MethodChannel(binaryMessenger, "tech.lolli.toolbox/main_chan")
+        channel = MethodChannel(binaryMessenger, "com.shiraka.serverbox/main_chan")
         channel.setMethodCallHandler { method, result ->
                 when (method.method) {
                     "sendToBackground" -> {

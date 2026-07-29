@@ -162,6 +162,11 @@ jobs:
           fi
 
           "$aapt" dump badging "$source_apk" | head -n 4
+          package_name="$("$aapt" dump badging "$source_apk" | sed -n -E "s/^package: name='([^']+)'.*/\1/p" | head -n 1)"
+          if [[ "$package_name" != "com.shiraka.serverbox" ]]; then
+            echo "Unexpected Android package: $package_name" >&2
+            exit 1
+          fi
           mv "$source_apk" "$release_apk"
           sha256sum "$release_apk" > "$release_apk.sha256"
 

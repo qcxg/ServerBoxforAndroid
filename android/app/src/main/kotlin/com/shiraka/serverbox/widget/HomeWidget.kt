@@ -1,4 +1,4 @@
-package tech.lolli.toolbox.widget
+package com.shiraka.serverbox.widget
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.json.JSONException
-import tech.lolli.toolbox.R
+import com.shiraka.serverbox.R
 import java.net.URL
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException

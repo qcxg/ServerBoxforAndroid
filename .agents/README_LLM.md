@@ -205,11 +205,11 @@ Android 的簡短文字提示統一走 native system Toast。`packages/fl_lib/..
 
 本文件的本機產物驗證以 Android app 為主；其他平台目錄仍存在，但不在本次 build 保證內。
 
-- `android/app/src/main/kotlin/tech/lolli/toolbox/MainActivity.kt` 使用 `FlutterFragmentActivity`，建立 `tech.lolli.toolbox/main_chan`，處理 notification permission、foreground service、home widget 更新與 native -> Flutter disconnect callback。Android 13+ 的通知權限只影響通知可見性，不再被誤當成啟動 foreground service 的必要條件。
+- `android/app/src/main/kotlin/com/shiraka/serverbox/MainActivity.kt` 使用 `FlutterFragmentActivity`，建立 `com.shiraka.serverbox/main_chan`，處理 notification permission、foreground service、home widget 更新與 native -> Flutter disconnect callback。Android 13+ 的通知權限只影響通知可見性，不再被誤當成啟動 foreground service 的必要條件。
 - `ForegroundService.kt` 維護 SSH session 的合併通知、chronometer、單 session disconnect 及 stop-all action。Dart payload 來源是 `TermSessionManager`／`MethodChans.updateSessions`。存在 SSH session 時會持有 partial CPU wake lock；Android 13 以下另持有 high-performance Wi-Fi lock。最後一個 session 結束、stop-all 或 service 銷毀時必須成對釋放。
 - `widget/HomeWidget.kt` 與 `WidgetConfigureActivity.kt` 是 Android App Widget 實作；Flutter 端由 `MethodChans.updateHomeWidget` 觸發更新。
 - `AndroidManifest.xml` 宣告 network、biometric、notification、storage、wake lock、`FOREGROUND_SERVICE_DATA_SYNC` 與 `FOREGROUND_SERVICE_SPECIAL_USE` 權限，並註冊 activity、widget receiver 與 foreground service。API 34+ 的 SSH 長連線以 `specialUse` 啟動，manifest property 必須保留可審查的 SSH 背景用途說明。
-- `android/app/build.gradle` 設定 application ID `tech.lolli.toolbox`、compile/target SDK 36、三 ABI、R8/ProGuard 與 signing policy。`android/settings.gradle` 使用 AGP 8.11.1、Kotlin 2.2.20。
+- `android/app/build.gradle` 設定 application ID／namespace `com.shiraka.serverbox`、compile/target SDK 36、三 ABI、R8/ProGuard 與 signing policy。debug/profile 仍由根 Android Gradle 設定附加 `.debug`／`.profile`，因此可和正式版及舊 `tech.lolli.toolbox` 安裝並存。`android/settings.gradle` 使用 AGP 8.11.1、Kotlin 2.2.20。
 - watch connectivity、notification token 等由 `packages/` 中的本地 plugin 提供。
 
 改 method name、intent action、channel name、notification JSON 或 widget contract 時，Dart 與 Kotlin 兩端必須同一個 commit 一起修改。

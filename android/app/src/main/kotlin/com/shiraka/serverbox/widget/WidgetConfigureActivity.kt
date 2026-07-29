@@ -1,4 +1,4 @@
-package tech.lolli.toolbox.widget
+package com.shiraka.serverbox.widget
 
 import android.app.Activity
 import android.appwidget.AppWidgetManager
@@ -7,7 +7,7 @@ import android.os.Bundle
 import android.util.Patterns
 import android.widget.Button
 import android.widget.EditText
-import tech.lolli.toolbox.R
+import com.shiraka.serverbox.R
 
 class WidgetConfigureActivity : Activity() {
     private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID

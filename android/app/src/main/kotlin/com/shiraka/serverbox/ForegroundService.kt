@@ -1,4 +1,4 @@
-package tech.lolli.toolbox
+package com.shiraka.serverbox
 
 import android.annotation.SuppressLint
 import android.app.*
@@ -26,8 +26,8 @@ class ForegroundService : Service() {
     private val chanId = "ForegroundServiceChannel"
     private val NOTIFICATION_ID = 1000
     private val ACTION_STOP_FOREGROUND = "ACTION_STOP_FOREGROUND"
-    private val ACTION_UPDATE_SESSIONS = "tech.lolli.toolbox.ACTION_UPDATE_SESSIONS"
-    private val ACTION_DISCONNECT_SESSION = "tech.lolli.toolbox.ACTION_DISCONNECT_SESSION"
+    private val ACTION_UPDATE_SESSIONS = "com.shiraka.serverbox.ACTION_UPDATE_SESSIONS"
+    private val ACTION_DISCONNECT_SESSION = "com.shiraka.serverbox.ACTION_DISCONNECT_SESSION"
 
     private var isFgStarted = false
     private var cpuWakeLock: PowerManager.WakeLock? = null
@@ -71,7 +71,7 @@ class ForegroundService : Service() {
             return when (action) {
                 ACTION_STOP_FOREGROUND -> {
                     // Notify Flutter to stop all connections before stopping service
-                    val stopAllIntent = Intent("tech.lolli.toolbox.STOP_ALL_CONNECTIONS")
+                    val stopAllIntent = Intent("com.shiraka.serverbox.STOP_ALL_CONNECTIONS")
                     sendBroadcast(stopAllIntent)
                     clearAll()
                     stopForegroundService()
@@ -367,7 +367,7 @@ class ForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.d("ForegroundService", "Task removed; stopping all SSH background work")
-        sendBroadcast(Intent("tech.lolli.toolbox.STOP_ALL_CONNECTIONS"))
+        sendBroadcast(Intent("com.shiraka.serverbox.STOP_ALL_CONNECTIONS"))
         clearAll()
         stopForegroundService()
         Handler(Looper.getMainLooper()).postDelayed({

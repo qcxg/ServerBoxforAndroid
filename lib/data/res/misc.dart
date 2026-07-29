@@ -10,7 +10,7 @@ abstract final class Miscs {
   /// Editor max allowed size is 1mb
   static const editorMaxSize = 1024 * 1024;
 
-  static const pkgName = 'tech.lolli.toolbox';
+  static const pkgName = 'com.shiraka.serverbox';
 
   static const bakFileName = 'srvbox_bak.json';
 }

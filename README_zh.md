@@ -72,7 +72,7 @@ ServerBox Android 是一款行動伺服器管理 App，可在同一處監控主�
 | Android | 7.0 或更新版本（`minSdk 24`） |
 | Target | Android 16 / API 36 |
 | 發布 ABI | `arm64-v8a` |
-| 套件名稱 | `tech.lolli.toolbox` |
+| 套件名稱 | `com.shiraka.serverbox` |
 
 Release 簽章憑證 SHA-256：
 

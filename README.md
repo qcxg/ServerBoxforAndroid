@@ -82,7 +82,7 @@ Install the latest signed APK from
 | Android | 7.0 or newer (`minSdk 24`) |
 | Target | Android 16 / API 36 |
 | Published ABI | `arm64-v8a` |
-| Package | `tech.lolli.toolbox` |
+| Package | `com.shiraka.serverbox` |
 
 Release signing certificate SHA-256:
 
