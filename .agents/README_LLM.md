@@ -384,7 +384,7 @@ flutter gen-l10n
 
 - 工具鏈：Flutter 3.44.6 stable / Dart 3.12.2、compile/target SDK 36、AGP 8.11.1、Kotlin 2.2.20。獨立 SDK 已裁成 Android 建置所需集合；Windows-host Dart／engine snapshot 是 Android 編譯工具，不能刪除。
 - `flutter analyze` 對 App、共用編輯器及 fork xterm 的相關原始碼通過，`No issues found`。
-- 根專案 `flutter test`：352 tests passed，包含 server reachability 初始／在線／離線與二次強制確認狀態測試。
+- 根專案 `flutter test`：359 tests passed，包含 server reachability 初始／在線／離線與二次強制確認狀態測試，以及合併 upstream 後的 SSH command result／systemd parser 測試。
 - 從根目錄執行 `packages/fl_lib/test/editor_page_test.dart`：3 tests passed；涵蓋 editor 開關與 undo/redo、isolate 不捕獲 async save context，以及 0-byte 內容仍有可編輯行。
 - 從根目錄執行 xterm 的 `custom_text_edit_test.dart` 與 `terminal_view_key_repeat_test.dart`：7 tests passed；涵蓋 IME 個人化學習、delete 去重及硬體長按 repeat。
 - `flutter build apk --release --split-per-abi --target-platform android-arm64 --build-number=1500 --build-name=1.0.1500`：通過。產物 version `1.0.1500`／code `150003`、min SDK 24、compile/target SDK 36、只含 `arm64-v8a`。
