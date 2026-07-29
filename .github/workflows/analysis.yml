@@ -54,9 +54,7 @@ jobs:
             packages/fl_lib/test/text_notice_presenter_test.dart
 
       - name: Test customized xterm
-        working-directory: packages/xterm
         run: |
-          flutter pub get --enforce-lockfile
           flutter test \
-            test/src/ui/custom_text_edit_test.dart \
-            test/src/ui/terminal_view_key_repeat_test.dart
+            packages/xterm/test/src/ui/custom_text_edit_test.dart \
+            packages/xterm/test/src/ui/terminal_view_key_repeat_test.dart
