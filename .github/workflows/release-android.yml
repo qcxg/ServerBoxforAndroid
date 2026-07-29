@@ -150,7 +150,7 @@ jobs:
 
           actual_digest="$(
             printf '%s\n' "$signing_output" |
-              sed -n 's/^Signer #1 certificate SHA-256 digest: //p' |
+              sed -n -E 's/^(Signer #1|V2 Signer): certificate SHA-256 digest: //p' |
               head -n 1 |
               tr '[:lower:]' '[:upper:]'
           )"
