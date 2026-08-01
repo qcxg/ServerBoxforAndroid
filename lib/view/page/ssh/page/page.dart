@@ -31,6 +31,7 @@ import 'package:server_box/data/ssh/ssh_terminal_environment.dart';
 import 'package:server_box/data/ssh/terminal_output_buffer.dart';
 import 'package:server_box/data/ssh/tmux/tmux_export.dart';
 import 'package:server_box/view/page/storage/sftp.dart';
+import 'package:server_box/view/widget/glass_surface.dart';
 import 'package:server_box/view/widget/ssh_connection_status.dart';
 import 'package:server_box/view/widget/tmux_session_selector.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -48,6 +49,7 @@ final class SshPageArgs {
   final String? initCmd;
   final Snippet? initSnippet;
   final bool notFromTab;
+  final bool autoShowKeyboard;
   final Function()? onSessionEnd;
   final GlobalKey<TerminalViewState>? terminalKey;
   final FocusNode? focusNode;
@@ -62,6 +64,7 @@ final class SshPageArgs {
     this.initCmd,
     this.initSnippet,
     this.notFromTab = true,
+    this.autoShowKeyboard = false,
     this.onSessionEnd,
     this.terminalKey,
     this.focusNode,
@@ -127,13 +130,22 @@ class SSHPage extends ConsumerStatefulWidget {
     }
     return MaterialPageRoute(
       builder: (_) => VirtualWindowFrame(
-        child: SSHPage(args: SshPageArgs(spi: spi)),
+        child: SSHPage(args: SshPageArgs(spi: spi, autoShowKeyboard: true)),
       ),
     );
   }
 }
 
 const _horizonPadding = 7.0;
+const _sshToolbarKeyHeight = 38.0;
+const _sshToolbarKeyGap = 4.0;
+const _sshToolbarKeyInset = 6.0;
+const _sshToolbarDirectionKeys = [
+  VirtKey.up,
+  VirtKey.left,
+  VirtKey.down,
+  VirtKey.right,
+];
 
 class SSHPageState extends ConsumerState<SSHPage>
     with
@@ -165,7 +177,6 @@ class SSHPageState extends ConsumerState<SSHPage>
   late final _termKey =
       widget.args.terminalKey ?? GlobalKey<TerminalViewState>();
 
-  late MediaQueryData _media;
   late TerminalStyle _terminalStyle;
   late TerminalTheme _terminalTheme;
   double _virtKeysHeight = 0;
@@ -181,6 +192,7 @@ class SSHPageState extends ConsumerState<SSHPage>
   );
   final ValueNotifier<bool> _isCommandComposerOpen = ValueNotifier(false);
   final ValueNotifier<bool> _isSendingCommandBuffer = ValueNotifier(false);
+  final ValueNotifier<double> _keyboardInset = ValueNotifier(0);
   SSHClient? _client;
   SSHSession? _session;
   Timer? _discontinuityTimer;
@@ -220,6 +232,12 @@ class SSHPageState extends ConsumerState<SSHPage>
 
   Future<void> pickSnippetFromToolbar() => _pickSnippet();
 
+  void requestTerminalKeyboard() {
+    if (!mounted) return;
+    widget.args.focusNode?.requestFocus();
+    _termKey.currentState?.requestKeyboard();
+  }
+
   void _setConnectionStatus(TermSessionStatus status) {
     if (_connectionStatus.value != status) {
       _connectionStatus.value = status;
@@ -239,6 +257,7 @@ class SSHPageState extends ConsumerState<SSHPage>
     _commandSendMode.dispose();
     _isCommandComposerOpen.dispose();
     _isSendingCommandBuffer.dispose();
+    _keyboardInset.dispose();
     _terminalController.dispose();
     _discontinuityTimer?.cancel();
     _terminalFlushTimer?.cancel();
@@ -325,10 +344,10 @@ class SSHPageState extends ConsumerState<SSHPage>
       case AppLifecycleState.resumed:
         if (!_isVisibleSessionPage) return;
         TermSessionManager.setActive(_sessionId, hasTerminal: true);
+        if (!_shouldShowKeyboardOnEntry) break;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || !_isVisibleSessionPage) return;
-          widget.args.focusNode?.requestFocus();
-          _termKey.currentState?.requestKeyboard();
+          requestTerminalKeyboard();
         });
         unawaited(_checkConnectionHealth(immediate: true));
         if (_discontinuityTimer == null || !_discontinuityTimer!.isActive) {
@@ -349,6 +368,12 @@ class SSHPageState extends ConsumerState<SSHPage>
   }
 
   @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    _updateKeyboardInset();
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _isDark = switch (Stores.setting.termTheme.fetch()) {
@@ -360,13 +385,12 @@ class SSHPageState extends ConsumerState<SSHPage>
         _ => context.isDark,
       },
     };
-    _media = context.mediaQuery;
-
     _terminalTheme = _isDark ? TerminalThemes.dark : TerminalThemes.light;
     _terminalTheme = _terminalTheme.copyWith(selectionCursor: UIs.primaryColor);
 
     // Because the virtual keyboard only displayed on mobile devices
     _updateVirtKeysHeight();
+    _updateKeyboardInset();
   }
 
   @override
@@ -381,7 +405,12 @@ class SSHPageState extends ConsumerState<SSHPage>
       child: Scaffold(
         appBar: widget.args.notFromTab
             ? CustomAppBar(
-                leading: BackButton(onPressed: context.pop),
+                leading: BackButton(
+                  onPressed: () {
+                    _closeTerminalKeyboard();
+                    context.pop();
+                  },
+                ),
                 title: SshConnectionTitle(
                   title: widget.args.spi.name,
                   statusListenable: _connectionStatus,
@@ -480,7 +509,28 @@ class SSHPageState extends ConsumerState<SSHPage>
     );
   }
 
-  Widget _buildBottom() => _buildMobileInputPanel();
+  Widget _buildBottom() => _SshKeyboardToolbar(
+    panelBuilder: (context) => _buildMobileInputPanel(),
+    viewInsetsListenable: _keyboardInset,
+    applyBottomInset: widget.args.notFromTab,
+  );
+
+  void _updateKeyboardInset() {
+    if (!mounted) return;
+    final view = View.of(context);
+    final windowInset = view.viewInsets.bottom / view.devicePixelRatio;
+    final mediaInset = MediaQuery.maybeViewInsetsOf(context)?.bottom ?? 0;
+    final nextInset = mediaInset > windowInset ? mediaInset : windowInset;
+    if ((_keyboardInset.value - nextInset).abs() < 0.5) return;
+    _keyboardInset.value = nextInset;
+  }
+
+  void _closeTerminalKeyboard() {
+    _termKey.currentState?.closeKeyboard();
+    _commandBufferFocusNode.unfocus();
+    widget.args.focusNode?.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
+  }
 
   List<Widget> _buildAppBarActions() {
     final actions = <Widget>[
@@ -540,46 +590,184 @@ class SSHPageState extends ConsumerState<SSHPage>
     VirtKeyState virtKeyState,
     VirtKeyboard virtKeyNotifier,
   ) {
-    final count = _virtKeysList.firstOrNull?.length ?? 0;
-    if (count == 0) return UIs.placeholder;
+    if (_horizonVirtKeys) {
+      return _buildSingleLineVirtualKey(virtKeyState, virtKeyNotifier);
+    }
+    return _buildMultiLineVirtualKey(virtKeyState, virtKeyNotifier);
+  }
+
+  Widget _buildMultiLineVirtualKey(
+    VirtKeyState virtKeyState,
+    VirtKeyboard virtKeyNotifier,
+  ) {
+    if (_virtKeysList.isEmpty) return UIs.placeholder;
+
     return LayoutBuilder(
       builder: (_, cons) {
-        final virtKeyWidth = cons.maxWidth / count;
-        if (_horizonVirtKeys) {
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _virtKeysList
-                  .expand((e) => e)
-                  .map(
-                    (e) => _buildVirtKeyItem(
-                      e,
-                      virtKeyWidth,
+        final maxKeyCount = _virtKeysList.fold<int>(
+          0,
+          (max, row) => row.length > max ? row.length : max,
+        );
+        final availableWidth =
+            cons.maxWidth - _sshToolbarKeyGap * (maxKeyCount - 1);
+        final virtKeyWidth = availableWidth > 0
+            ? availableWidth / maxKeyCount
+            : _sshToolbarKeyHeight;
+
+        Widget buildRow(List<VirtKey> rowKeys) {
+          final children = <Widget>[];
+          for (var index = 0; index < rowKeys.length; index++) {
+            if (index > 0) {
+              children.add(const SizedBox(width: _sshToolbarKeyGap));
+            }
+            children.add(
+              _buildVirtKeyItem(
+                rowKeys[index],
+                virtKeyWidth,
+                virtKeyState,
+                virtKeyNotifier,
+              ),
+            );
+          }
+          return SizedBox(
+            width: double.infinity,
+            height: _sshToolbarKeyHeight,
+            child: Row(children: children),
+          );
+        }
+
+        final rows = <Widget>[];
+        for (var index = 0; index < _virtKeysList.length; index++) {
+          if (index > 0) {
+            rows.add(const SizedBox(height: _sshToolbarKeyGap));
+          }
+          rows.add(buildRow(_virtKeysList[index]));
+        }
+        return Column(mainAxisSize: MainAxisSize.min, children: rows);
+      },
+    );
+  }
+
+  Widget _buildSingleLineVirtualKey(
+    VirtKeyState virtKeyState,
+    VirtKeyboard virtKeyNotifier,
+  ) {
+    final allKeys = _virtKeysList.expand((keys) => keys).toList();
+    if (allKeys.isEmpty) return UIs.placeholder;
+    final otherKeys = allKeys
+        .where((key) => !_sshToolbarDirectionKeys.contains(key))
+        .toList();
+    final hasUp = allKeys.contains(VirtKey.up);
+    final trailingDirectionKeys = [
+      VirtKey.left,
+      VirtKey.down,
+      VirtKey.right,
+    ].where(allKeys.contains).toList();
+
+    return LayoutBuilder(
+      builder: (_, cons) {
+        final trailingWidth =
+            trailingDirectionKeys.length * _sshToolbarKeyHeight +
+            _sshToolbarKeyGap * (trailingDirectionKeys.length - 1);
+        final otherAreaWidth =
+            cons.maxWidth -
+            (trailingDirectionKeys.isEmpty
+                ? 0
+                : _sshToolbarKeyGap + trailingWidth);
+        final keyCount = otherKeys.length < 7 ? otherKeys.length : 7;
+        final otherKeyWidth = otherKeys.isEmpty
+            ? _sshToolbarKeyHeight
+            : (otherAreaWidth - _sshToolbarKeyGap * (keyCount - 1)) > 0
+            ? (otherAreaWidth - _sshToolbarKeyGap * (keyCount - 1)) / keyCount
+            : _sshToolbarKeyHeight;
+
+        List<Widget> buildOtherKeys() {
+          final children = <Widget>[];
+          for (var index = 0; index < otherKeys.length; index++) {
+            if (index > 0) {
+              children.add(const SizedBox(width: _sshToolbarKeyGap));
+            }
+            children.add(
+              _buildVirtKeyItem(
+                otherKeys[index],
+                otherKeyWidth,
+                virtKeyState,
+                virtKeyNotifier,
+              ),
+            );
+          }
+          return children;
+        }
+
+        Widget buildTrailingDirectionKeys() {
+          final children = <Widget>[];
+          for (var index = 0; index < trailingDirectionKeys.length; index++) {
+            if (index > 0) {
+              children.add(const SizedBox(width: _sshToolbarKeyGap));
+            }
+            children.add(
+              _buildVirtKeyItem(
+                trailingDirectionKeys[index],
+                _sshToolbarKeyHeight,
+                virtKeyState,
+                virtKeyNotifier,
+              ),
+            );
+          }
+          return Row(mainAxisSize: MainAxisSize.min, children: children);
+        }
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              height: _sshToolbarKeyHeight,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildCommandModeBar(
+                      Theme.of(context).colorScheme,
+                      false,
+                      inline: true,
+                    ),
+                  ),
+                  if (hasUp) ...[
+                    const SizedBox(width: _sshToolbarKeyGap),
+                    _buildVirtKeyItem(
+                      VirtKey.up,
+                      _sshToolbarKeyHeight,
                       virtKeyState,
                       virtKeyNotifier,
                     ),
-                  )
-                  .toList(),
-            ),
-          );
-        }
-        final rows = _virtKeysList
-            .map(
-              (e) => Row(
-                children: e
-                    .map(
-                      (e) => _buildVirtKeyItem(
-                        e,
-                        virtKeyWidth,
-                        virtKeyState,
-                        virtKeyNotifier,
-                      ),
-                    )
-                    .toList(),
+                  ],
+                ],
               ),
-            )
-            .toList();
-        return Column(mainAxisSize: MainAxisSize.min, children: rows);
+            ),
+            const SizedBox(height: _sshToolbarKeyGap),
+            SizedBox(
+              height: _sshToolbarKeyHeight,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: otherKeys.isEmpty
+                        ? const SizedBox.shrink()
+                        : SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SizedBox(
+                              height: _sshToolbarKeyHeight,
+                              child: Row(children: buildOtherKeys()),
+                            ),
+                          ),
+                  ),
+                  if (trailingDirectionKeys.isNotEmpty) ...[
+                    const SizedBox(width: _sshToolbarKeyGap),
+                    buildTrailingDirectionKeys(),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
       },
     );
   }
@@ -605,37 +793,50 @@ class SSHPageState extends ConsumerState<SSHPage>
         break;
     }
 
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = selected
+        ? scheme.onSecondaryContainer
+        : scheme.onSurfaceVariant;
     final child = item.icon != null
-        ? Icon(
-            item.icon,
-            size: 17,
-            color: _isDark ? Colors.white : Colors.black,
-          )
+        ? Icon(item.icon, size: 17, color: foreground)
         : Text(
             item.text,
             style: TextStyle(
-              color: selected
-                  ? UIs.primaryColor
-                  : (_isDark ? Colors.white : Colors.black),
-              fontSize: 15,
+              color: foreground,
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
             ),
           );
 
-    return InkWell(
-      onTap: () => _doVirtualKey(item, virtKeyNotifier),
-      onTapDown: (_) {
-        if (item.canLongPress) {
-          _startVirtKeyRepeat(item, virtKeyNotifier);
-        }
-      },
-      onTapCancel: _stopVirtKeyRepeat,
-      onTapUp: (_) => _stopVirtKeyRepeat(),
+    const shape = RoundedSuperellipseBorder(
+      borderRadius: BorderRadius.all(Radius.circular(13)),
+    );
+    return Semantics(
+      button: true,
+      label: item.help ?? item.text,
+      toggled: item.toggleable ? selected : null,
       child: SizedBox(
         width: virtKeyWidth,
-        height: _horizonVirtKeys
-            ? _virtKeysHeight
-            : _virtKeysHeight / _virtKeysList.length,
-        child: Center(child: child),
+        height: _sshToolbarKeyHeight,
+        child: Material(
+          color: selected
+              ? scheme.secondaryContainer
+              : scheme.surfaceContainerHighest.withValues(alpha: 0.68),
+          shape: shape,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            customBorder: shape,
+            onTap: () => _doVirtualKey(item, virtKeyNotifier),
+            onTapDown: (_) {
+              if (item.canLongPress) {
+                _startVirtKeyRepeat(item, virtKeyNotifier);
+              }
+            },
+            onTapCancel: _stopVirtKeyRepeat,
+            onTapUp: (_) => _stopVirtKeyRepeat(),
+            child: Center(child: child),
+          ),
+        ),
       ),
     );
   }
@@ -646,16 +847,15 @@ class SSHPageState extends ConsumerState<SSHPage>
     _virtKeyRepeatTimer = Timer(const Duration(milliseconds: 450), () {
       if (!mounted) return;
       _doVirtualKey(item, virtKeyNotifier);
-      _virtKeyRepeatTimer = Timer.periodic(
-        const Duration(milliseconds: 90),
-        (timer) {
-          if (!mounted || DateTime.now().isAfter(deadline)) {
-            timer.cancel();
-            return;
-          }
-          _doVirtualKey(item, virtKeyNotifier);
-        },
-      );
+      _virtKeyRepeatTimer = Timer.periodic(const Duration(milliseconds: 90), (
+        timer,
+      ) {
+        if (!mounted || DateTime.now().isAfter(deadline)) {
+          timer.cancel();
+          return;
+        }
+        _doVirtualKey(item, virtKeyNotifier);
+      });
     });
   }
 
@@ -703,6 +903,11 @@ class SSHPageState extends ConsumerState<SSHPage>
   bool get _shouldActivateSessionOnInit {
     if (widget.args.notFromTab) return true;
     return widget.args.visibleListenable?.value ?? false;
+  }
+
+  bool get _shouldShowKeyboardOnEntry {
+    if (widget.args.notFromTab) return widget.args.autoShowKeyboard;
+    return _shouldActivateSessionOnInit;
   }
 
   bool get _isVisibleSessionPage {
@@ -832,12 +1037,15 @@ class SSHPageState extends ConsumerState<SSHPage>
       _virtKeysHeight = 0;
       return;
     }
+
     if (_virtKeysList.isEmpty) {
       _virtKeysHeight = 0;
-    } else if (_horizonVirtKeys) {
-      _virtKeysHeight = 37;
     } else {
-      _virtKeysHeight = 37.0 * _virtKeysList.length;
+      final rowCount = _horizonVirtKeys ? 2 : _virtKeysList.length;
+      _virtKeysHeight =
+          _sshToolbarKeyHeight * rowCount +
+          _sshToolbarKeyGap * (rowCount - 1) +
+          _sshToolbarKeyInset * 2;
     }
   }
 

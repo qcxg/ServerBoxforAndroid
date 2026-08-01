@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version without the v prefix, for example 1.0.1500
+        description: Version without the v prefix, for example 1.0.1501
         required: true
-        default: "1.0.1500"
+        default: "1.0.1501"
         type: string
   push:
     tags:

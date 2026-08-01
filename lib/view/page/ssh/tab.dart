@@ -22,7 +22,9 @@ import 'package:server_box/view/widget/server_reachability_dot.dart';
 import 'package:server_box/view/widget/ssh_connection_status.dart';
 
 class SSHTabPage extends ConsumerStatefulWidget {
-  const SSHTabPage({super.key});
+  const SSHTabPage({super.key, this.visibleListenable});
+
+  final ValueListenable<bool>? visibleListenable;
 
   @override
   ConsumerState<SSHTabPage> createState() => _SSHTabPageState();
@@ -147,7 +149,17 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
   final _sortVersionVN = 0.vn;
 
   @override
+  void initState() {
+    super.initState();
+    widget.visibleListenable?.addListener(_handleHomeVisibilityChanged);
+    if (widget.visibleListenable?.value == true) {
+      _handleHomeVisibilityChanged();
+    }
+  }
+
+  @override
   void dispose() {
+    widget.visibleListenable?.removeListener(_handleHomeVisibilityChanged);
     _restorableTabsState.dispose();
     final entries = _tabMap.values.toList(growable: false);
     _tabMap.clear();
@@ -159,6 +171,14 @@ class _SSHTabPageState extends ConsumerState<SSHTabPage>
     _fabVN.dispose();
     _sortVersionVN.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant SSHTabPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visibleListenable == widget.visibleListenable) return;
+    oldWidget.visibleListenable?.removeListener(_handleHomeVisibilityChanged);
+    widget.visibleListenable?.addListener(_handleHomeVisibilityChanged);
   }
 
   @override
@@ -323,6 +343,17 @@ extension on _SSHTabPageState {
     }
   }
 
+  void _handleHomeVisibilityChanged() {
+    if (!mounted || widget.visibleListenable?.value != true) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.visibleListenable?.value != true) return;
+      final idx = _fabVN.value;
+      if (idx <= 0 || idx >= _tabMap.length) return;
+      _tabMap.values.elementAt(idx).sshPageKey?.currentState
+          ?.requestTerminalKeyboard();
+    });
+  }
+
   Future<void> _addTab(Spi spi, {String? tmuxSession, int? tmuxWindow}) async {
     final name = _generateTabName(spi);
     final key = GlobalKey<SSHPageState>(debugLabel: name);
@@ -404,6 +435,14 @@ extension on _SSHTabPageState {
       final page = _tabMap.values.elementAt(idx).page;
       if (page is SSHPage) {
         sshSftpLink.selectServer(page.args.spi.id);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || _fabVN.value != idx) return;
+          _tabMap.values
+              .elementAt(idx)
+              .sshPageKey
+              ?.currentState
+              ?.requestTerminalKeyboard();
+        });
       }
     }
   }

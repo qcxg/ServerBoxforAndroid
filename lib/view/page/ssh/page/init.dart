@@ -195,7 +195,16 @@ extension _Init on SSHPageState {
       initSnippet.runInTerm(_terminal, widget.args.spi);
     }
 
-    widget.args.focusNode?.requestFocus();
+    if (_shouldActivateSessionOnInit) {
+      widget.args.focusNode?.requestFocus();
+    }
+
+    if (_shouldShowKeyboardOnEntry) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_isVisibleSessionPage) return;
+        requestTerminalKeyboard();
+      });
+    }
   }
 
   void _listen(Stream<Uint8List>? stream, {required String name}) {

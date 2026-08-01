@@ -37,6 +37,12 @@ stronger background-session behavior, and a two-pane file workspace.
   explicit session cleanup.
 - Use a mobile-focused xterm terminal with visible connection state, improved
   Android IME behavior, stabilized delete-key handling, and virtual keys.
+- Use a compact two-row SSH toolbar on small screens; it follows the system
+  keyboard animation, disappears when the keyboard is closed, and keeps the
+  command buffer and directional keys easy to reach.
+- Enter SSH from a server card with the keyboard ready; other server actions do
+  not open the keyboard automatically, and leaving with the back arrow closes
+  it first.
 - Compose commands locally before sending, then send a complete multiline
   block or execute non-empty lines sequentially.
 - Resume long-running work with tmux support when tmux is installed on the
@@ -76,6 +82,8 @@ stronger background-session behavior, and a two-pane file workspace.
 
 Install the latest signed APK from
 [GitHub Releases](https://github.com/qcxg/flutter_server_box/releases/latest).
+
+Current release: `v1.0.1501` (`arm64-v8a`).
 
 | Requirement | Value |
 | --- | --- |

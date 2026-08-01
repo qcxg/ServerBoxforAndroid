@@ -15,6 +15,7 @@ import 'package:server_box/data/res/store.dart';
 import 'package:server_box/view/page/home_tab.dart';
 import 'package:server_box/view/page/macos_menu_bar.dart';
 import 'package:server_box/view/page/setting/entry.dart';
+import 'package:server_box/view/page/ssh/tab.dart';
 import 'package:server_box/view/responsive_layout.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -48,6 +49,7 @@ class _HomePageState extends ConsumerState<HomePage>
   late final PageController _pageController;
 
   final _selectIndex = ValueNotifier(0);
+  final _sshHomeVisible = ValueNotifier(false);
 
   bool _switchingPage = false;
   bool _shouldAuth = false;
@@ -77,6 +79,7 @@ class _HomePageState extends ConsumerState<HomePage>
     WakelockPlus.disable();
 
     _selectIndex.dispose();
+    _sshHomeVisible.dispose();
     super.dispose();
   }
 
@@ -147,6 +150,12 @@ class _HomePageState extends ConsumerState<HomePage>
     super.build(context);
     final width = MediaQuery.sizeOf(context).width;
     final useBottomNavigation = AppLayout.useCompactNavigation(width);
+    final mediaViewInsetsBottom = MediaQuery.viewInsetsOf(context).bottom;
+    final view = View.of(context);
+    final windowViewInsetsBottom =
+        view.viewInsets.bottom / view.devicePixelRatio;
+    final keyboardVisible =
+        mediaViewInsetsBottom > 0 || windowViewInsetsBottom > 0;
     _syncFullscreenSystemUi();
 
     final Widget mainContent = ListenableBuilder(
@@ -177,9 +186,15 @@ class _HomePageState extends ConsumerState<HomePage>
                   controller: _pageController,
                   itemCount: _tabs.length,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemBuilder: (_, index) => _tabs[index].page,
+                  itemBuilder: (_, index) {
+                    if (_tabs[index] == AppTab.ssh) {
+                      return SSHTabPage(visibleListenable: _sshHomeVisible);
+                    }
+                    return _tabs[index].page;
+                  },
                   onPageChanged: (value) {
                     FocusScope.of(context).unfocus();
+                    _updateSshHomeVisibility(value);
                     if (!_switchingPage) {
                       _selectIndex.value = value;
                       _restorableTabIndex.value = value;
@@ -190,7 +205,14 @@ class _HomePageState extends ConsumerState<HomePage>
               ),
             ],
           ),
-          bottomNavigationBar: useBottomNavigation ? _buildBottomBar() : null,
+          bottomNavigationBar:
+              useBottomNavigation &&
+                  !(keyboardVisible &&
+                      selectedIndex >= 0 &&
+                      selectedIndex < _tabs.length &&
+                      _tabs[selectedIndex] == AppTab.ssh)
+              ? _buildBottomBar()
+              : null,
         );
       },
     );
@@ -243,8 +265,10 @@ class _HomePageState extends ConsumerState<HomePage>
   Future<void> afterFirstLayout(BuildContext context) async {
     // Auth required for first launch
     // Restore tab index from restoration if available
-    if (_restorableTabIndex.value >= 0 && _restorableTabIndex.value < _tabs.length) {
+    if (_restorableTabIndex.value >= 0 &&
+        _restorableTabIndex.value < _tabs.length) {
       _selectIndex.value = _restorableTabIndex.value;
+      _updateSshHomeVisibility(_restorableTabIndex.value);
       if (_pageController.hasClients) {
         _pageController.jumpToPage(_restorableTabIndex.value);
       }
@@ -281,6 +305,14 @@ class _HomePageState extends ConsumerState<HomePage>
     Future.delayed(const Duration(milliseconds: 677), () {
       _switchingPage = false;
     });
+  }
+
+  void _updateSshHomeVisibility(int index) {
+    final visible =
+        index >= 0 && index < _tabs.length && _tabs[index] == AppTab.ssh;
+    if (_sshHomeVisible.value != visible) {
+      _sshHomeVisible.value = visible;
+    }
   }
 
   bool get _isServerFullscreenMode {
@@ -558,41 +590,49 @@ final class _FloatingHomeNavigation extends StatelessWidget {
     final direction = Directionality.of(context);
     final textScaler = MediaQuery.textScalerOf(context);
     final baseStyle = theme.textTheme.labelMedium;
-    final labelWidths = tabs.map((tab) {
-      final destination = tab.navDestination;
-      final regular = _measureLabel(
-        destination.label,
-        baseStyle?.copyWith(fontWeight: FontWeight.w600),
-        direction,
-        textScaler,
-      );
-      final selected = _measureLabel(
-        destination.label,
-        baseStyle?.copyWith(fontWeight: FontWeight.w700),
-        direction,
-        textScaler,
-      );
-      return regular > selected ? regular : selected;
-    }).toList(growable: false);
+    final labelWidths = tabs
+        .map((tab) {
+          final destination = tab.navDestination;
+          final regular = _measureLabel(
+            destination.label,
+            baseStyle?.copyWith(fontWeight: FontWeight.w600),
+            direction,
+            textScaler,
+          );
+          final selected = _measureLabel(
+            destination.label,
+            baseStyle?.copyWith(fontWeight: FontWeight.w700),
+            direction,
+            textScaler,
+          );
+          return regular > selected ? regular : selected;
+        })
+        .toList(growable: false);
 
     final maxNavWidth = (MediaQuery.sizeOf(context).width - 40).clamp(
       0.0,
       520.0,
     );
     final baseWidth = labelWidths.fold<double>(24, (sum, width) => sum + width);
-    final horizontalSpace = ((maxNavWidth - 8 - baseWidth) / tabs.length)
-        .clamp(12.0, 28.0);
+    final horizontalSpace = ((maxNavWidth - 8 - baseWidth) / tabs.length).clamp(
+      12.0,
+      28.0,
+    );
     var itemWidths = List<double>.generate(
       tabs.length,
       (index) =>
-          labelWidths[index] + horizontalSpace + (index == indicatorIndex ? 24 : 0),
+          labelWidths[index] +
+          horizontalSpace +
+          (index == indicatorIndex ? 24 : 0),
       growable: false,
     );
     final desiredContentWidth = itemWidths.fold<double>(0, (a, b) => a + b);
     final maxContentWidth = maxNavWidth - 8;
     if (desiredContentWidth > maxContentWidth && desiredContentWidth > 0) {
       final scale = maxContentWidth / desiredContentWidth;
-      itemWidths = itemWidths.map((width) => width * scale).toList(growable: false);
+      itemWidths = itemWidths
+          .map((width) => width * scale)
+          .toList(growable: false);
     }
     final navWidth = itemWidths.fold<double>(8, (sum, width) => sum + width);
     final indicatorStart = itemWidths
@@ -705,9 +745,7 @@ final class _FloatingHomeNavigation extends StatelessWidget {
                                           )
                                         : Text(
                                             destination.label,
-                                            key: ValueKey(
-                                              'unselected-$index',
-                                            ),
+                                            key: ValueKey('unselected-$index'),
                                             maxLines: 1,
                                             softWrap: false,
                                             style: baseStyle?.copyWith(
