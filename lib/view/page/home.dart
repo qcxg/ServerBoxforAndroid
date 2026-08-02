@@ -62,6 +62,7 @@ class _HomePageState extends ConsumerState<HomePage>
   @override
   void dispose() {
     _restorableTabIndex.dispose();
+    AppRouteObserver.removeListener(_handleRouteChanged);
     if (isMobile) {
       SystemUIs.switchStatusBar(hide: false);
     }
@@ -88,6 +89,8 @@ class _HomePageState extends ConsumerState<HomePage>
     super.initState();
     SystemUIs.switchStatusBar(hide: false);
     WidgetsBinding.instance.addObserver(this);
+    AppRouteObserver.addListener(_handleRouteChanged);
+    _notifier.setAppInForeground(true);
     // avoid index out of range
     if (_selectIndex.value >= _tabs.length || _selectIndex.value < 0) {
       _selectIndex.value = 0;
@@ -107,6 +110,7 @@ class _HomePageState extends ConsumerState<HomePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    _notifier.setAppInForeground(state == AppLifecycleState.resumed);
     if (isDesktop) return;
 
     switch (state) {
@@ -193,7 +197,7 @@ class _HomePageState extends ConsumerState<HomePage>
                     return _tabs[index].page;
                   },
                   onPageChanged: (value) {
-                    FocusScope.of(context).unfocus();
+                    _dismissKeyboard();
                     _updateSshHomeVisibility(value);
                     if (!_switchingPage) {
                       _selectIndex.value = value;
@@ -292,6 +296,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 
   void _onDestinationSelected(int index) {
+    _dismissKeyboard();
     if (_selectIndex.value == index) return;
     if (index < 0 || index >= _tabs.length) return;
     _selectIndex.value = index;
@@ -313,6 +318,24 @@ class _HomePageState extends ConsumerState<HomePage>
     if (_sshHomeVisible.value != visible) {
       _sshHomeVisible.value = visible;
     }
+  }
+
+  void _handleRouteChanged(RouteSettings? settings, RouteType type) {
+    if (!mounted || type != RouteType.pop) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final currentRoute = AppRouteObserver.currentRoute;
+      final isHomeRoute =
+          currentRoute?.name == HomePage.route.path ||
+          (currentRoute?.name == null && !Navigator.of(context).canPop());
+      if (isHomeRoute) _dismissKeyboard();
+    });
+  }
+
+  void _dismissKeyboard() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
   }
 
   bool get _isServerFullscreenMode {

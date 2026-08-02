@@ -449,19 +449,20 @@ class ServerNotifier extends _$ServerNotifier {
         return;
       }
     } on TimeoutException catch (e, s) {
+      TryLimiter.inc(sid);
       final newStatus = _copyStatus(
         state.status,
         err: SSHErr(type: SSHErrType.getStatus, message: e.toString()),
         setErr: true,
       );
-      updateStatus(newStatus);
-      if (state.client != null && state.conn != ServerConn.finished) {
-        updateConnection(ServerConn.connected);
-      }
+      _setFailedState(newStatus, closeClient: true);
       Loggers.app.warning('Get status from ${spi.name} timed out', e, s);
 
       final sessionId = 'ssh_${spi.id}';
-      TermSessionManager.updateStatus(sessionId, TermSessionStatus.connected);
+      TermSessionManager.updateStatus(
+        sessionId,
+        TermSessionStatus.disconnected,
+      );
       return;
     } catch (e) {
       TryLimiter.inc(sid);
@@ -470,7 +471,7 @@ class ServerNotifier extends _$ServerNotifier {
         err: SSHErr(type: SSHErrType.getStatus, message: e.toString()),
         setErr: true,
       );
-      _setFailedState(newStatus);
+      _setFailedState(newStatus, closeClient: true);
       Loggers.app.warning('Get status from ${spi.name} failed', e);
 
       final sessionId = 'ssh_${spi.id}';
@@ -508,7 +509,7 @@ class ServerNotifier extends _$ServerNotifier {
         ),
         setErr: true,
       );
-      _setFailedState(newStatus);
+      _setFailedState(newStatus, closeClient: true);
       Loggers.app.warning('Server status', e, trace);
 
       final sessionId = 'ssh_${spi.id}';

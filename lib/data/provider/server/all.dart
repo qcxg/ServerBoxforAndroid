@@ -30,9 +30,20 @@ abstract class ServersState with _$ServersState {
 
 @Riverpod(keepAlive: true)
 class ServersNotifier extends _$ServersNotifier {
+  static const _allDisconnectedReconnectCooldown = Duration(minutes: 3);
+
+  bool _isAppInForeground = true;
+  bool _isRefreshingAll = false;
+  bool _allReconnectInFlight = false;
+  DateTime? _lastAllDisconnectedReconnect;
+
   @override
   ServersState build() {
     return _load();
+  }
+
+  void setAppInForeground(bool value) {
+    _isAppInForeground = value;
   }
 
   Future<void> reload() async {
@@ -129,38 +140,102 @@ class ServersNotifier extends _$ServersNotifier {
       return;
     }
 
-    final serversToRefresh = <MapEntry<String, Spi>>[];
-    final idsToResetLimiter = <String>[];
+    if (_isRefreshingAll) return;
+    _isRefreshingAll = true;
 
-    for (final entry in state.servers.entries) {
-      final serverId = entry.key;
-      final spi = entry.value;
+    try {
+      final serversToRefresh = <MapEntry<String, Spi>>[];
+      final idsToResetLimiter = <String>[];
 
-      if (state.manualDisconnectedIds.contains(serverId)) continue;
+      for (final entry in state.servers.entries) {
+        final serverId = entry.key;
+        final spi = entry.value;
 
-      final serverState = ref.read(serverProvider(serverId));
+        if (state.manualDisconnectedIds.contains(serverId)) continue;
 
-      if (onlyFailed) {
-        if (serverState.conn != ServerConn.failed) {
+        final serverState = ref.read(serverProvider(serverId));
+
+        if (onlyFailed) {
+          if (serverState.conn != ServerConn.failed) {
+            continue;
+          }
+          idsToResetLimiter.add(serverId);
+        }
+
+        if (serverState.conn == ServerConn.disconnected && !spi.autoConnect) {
           continue;
         }
-        idsToResetLimiter.add(serverId);
+
+        serversToRefresh.add(entry);
       }
 
-      if (serverState.conn == ServerConn.disconnected && !spi.autoConnect) {
-        continue;
+      for (final id in idsToResetLimiter) {
+        TryLimiter.reset(id);
       }
 
-      serversToRefresh.add(entry);
+      await Future.wait(
+        serversToRefresh.map(
+          (entry) => ref.read(serverProvider(entry.key).notifier).refresh(),
+        ),
+      );
+
+      if (!onlyFailed) _maybeReconnectAllDisconnected();
+    } finally {
+      _isRefreshingAll = false;
+    }
+  }
+
+  void _maybeReconnectAllDisconnected() {
+    if (!_isAppInForeground || _allReconnectInFlight) return;
+
+    final reconnectableIds = state.serverOrder.where((serverId) {
+      if (state.manualDisconnectedIds.contains(serverId)) return false;
+      return state.servers[serverId]?.autoConnect ?? false;
+    }).toList();
+    if (reconnectableIds.length <= 1) return;
+
+    final allDisconnected = reconnectableIds.every((serverId) {
+      final connection = ref.read(serverProvider(serverId)).conn;
+      return connection == ServerConn.failed ||
+          connection == ServerConn.disconnected;
+    });
+    if (!allDisconnected) return;
+
+    final now = DateTime.now();
+    final lastAttempt = _lastAllDisconnectedReconnect;
+    if (lastAttempt != null &&
+        now.difference(lastAttempt) < _allDisconnectedReconnectCooldown) {
+      return;
     }
 
-    for (final id in idsToResetLimiter) {
-      TryLimiter.reset(id);
-    }
+    _lastAllDisconnectedReconnect = now;
+    _allReconnectInFlight = true;
+    Loggers.app.warning(
+      'All servers are disconnected; trying to reconnect '
+      '${reconnectableIds.length} servers',
+    );
 
-    for (final entry in serversToRefresh) {
-      final serverNotifier = ref.read(serverProvider(entry.key).notifier);
-      serverNotifier.refresh().ignore();
+    unawaited(_reconnectAllDisconnected(reconnectableIds));
+  }
+
+  Future<void> _reconnectAllDisconnected(List<String> serverIds) async {
+    try {
+      await Future.wait(
+        serverIds.map((serverId) async {
+          TryLimiter.reset(serverId);
+          try {
+            await ref.read(serverProvider(serverId).notifier).refresh();
+          } catch (e, st) {
+            Loggers.app.warning(
+              'Bulk reconnect failed for server $serverId',
+              e,
+              st,
+            );
+          }
+        }),
+      );
+    } finally {
+      _allReconnectInFlight = false;
     }
   }
 
