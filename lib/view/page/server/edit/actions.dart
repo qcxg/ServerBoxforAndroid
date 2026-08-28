@@ -1,8 +1,5 @@
 part of 'edit.dart';
 
-/// Only permit ipv4 / ipv6 / domain chars (including IPv6 zone identifier like %en0)
-final _hostReg = RegExp(r'^[a-zA-Z0-9\.\-_:%;]+$');
-
 extension _Actions on _ServerEditPageState {
   Iterable<ShellCmdType> get _diskInfoCmdTypes => const [
     StatusCmdType.disk,
@@ -189,7 +186,8 @@ extension _Actions on _ServerEditPageState {
       return;
     }
 
-    if (!_hostReg.hasMatch(_ipController.text)) {
+    final host = normalizeSshHost(_ipController.text);
+    if (!isValidSshHost(host)) {
       context.showSnackBar(l10n.invalidHostFormat);
       return;
     }
@@ -257,9 +255,9 @@ extension _Actions on _ServerEditPageState {
 
     final spi = Spi(
       name: _nameController.text.isEmpty
-          ? _ipController.text
+          ? host
           : _nameController.text,
-      ip: _ipController.text,
+      ip: host,
       port: int.parse(_portController.text),
       user: _usernameController.text,
       pwd: _passwordController.text.selfNotEmptyOrNull,

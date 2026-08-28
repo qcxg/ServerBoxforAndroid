@@ -66,6 +66,18 @@ void main() {
       expect(65536 <= 65535, isFalse); // Port too high
     });
 
+    test('alternate SSH URL supports bracketed IPv6', () {
+      const server = Spi(
+        name: 'ipv6-server',
+        ip: '2001:db8::10',
+        port: 22,
+        user: 'root',
+        alterUrl: 'admin@[2001:db8::20]:2222',
+      );
+
+      expect(server.parseAlterUrl(), ('2001:db8::20', 'admin', 2222));
+    });
+
     test('server form data processing is correct', () {
       // Test data processing logic
 

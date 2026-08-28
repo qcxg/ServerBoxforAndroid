@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:fl_lib/fl_lib.dart';
 import 'package:meta/meta.dart';
+import 'package:server_box/core/utils/ssh_host.dart';
 import 'package:server_box/data/model/server/server_private_info.dart';
 
 /// Utility class to parse SSH config files under `~/.ssh/config`
@@ -83,7 +84,7 @@ abstract final class SSHConfig {
         final spi = Spi(
           id: ShortId.generate(),
           name: currentHost,
-          ip: hostname,
+          ip: normalizeSshHost(hostname),
           port: port,
           user: user ?? 'root', // Default user is 'root'
           keyId: identityFile,
@@ -173,19 +174,54 @@ abstract final class SSHConfig {
     // Add the last server
     addServer();
 
+    // ProxyJump stores a Host alias, while Spi.jumpId stores the generated
+    // server id. Resolve aliases after every Host block has been parsed.
+    final byName = <String, Spi>{
+      for (final server in servers) server.name: server,
+    };
+    final byHost = <String, Spi>{
+      for (final server in servers) server.ip: server,
+    };
+    for (var i = 0; i < servers.length; i++) {
+      final server = servers[i];
+      final jumpAlias = server.jumpId;
+      if (jumpAlias == null) continue;
+      final jump = byName[jumpAlias] ?? byHost[jumpAlias];
+      if (jump == null) {
+        Loggers.app.warning(
+          'SSH config jump host $jumpAlias was not found for ${server.name}',
+        );
+        servers[i] = server.copyWith(jumpId: null, jumpIds: null);
+        continue;
+      }
+      servers[i] = server.copyWith(jumpId: jump.id, jumpIds: [jump.id]);
+    }
+
     return servers;
   }
 
   /// Extract jump host from ProxyJump or ProxyCommand
   static String? _extractJumpHost(String value) {
-    if (value.isEmpty) return null;
-    // For ProxyJump, the format is usually: user@host:port
-    // For ProxyCommand, it's more complex and might need custom parsing
-    if (value.contains('@')) {
-      final parts = value.split(' ');
-      return parts.isNotEmpty ? parts[0] : null;
+    final first = value.split(',').first.trim();
+    if (first.isEmpty || first.toLowerCase() == 'none') return null;
+
+    final at = first.lastIndexOf('@');
+    var hostPort = at == -1 ? first : first.substring(at + 1);
+    hostPort = hostPort.trim();
+    if (hostPort.startsWith('[')) {
+      final close = hostPort.indexOf(']');
+      if (close <= 1) return null;
+      return normalizeSshHost(hostPort.substring(0, close + 1));
     }
-    return null;
+
+    // An unbracketed IPv6 literal contains multiple colons and must not have
+    // its final hextet mistaken for a port. Only strip :port from hostnames.
+    final colon = hostPort.lastIndexOf(':');
+    if (colon > 0 && hostPort.indexOf(':') == colon) {
+      final port = int.tryParse(hostPort.substring(colon + 1));
+      if (port != null) hostPort = hostPort.substring(0, colon);
+    }
+    return normalizeSshHost(hostPort);
   }
 
   static String _stripInlineComment(String line) {

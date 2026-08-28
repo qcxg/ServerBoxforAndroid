@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:fl_lib/fl_lib.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:freezed_annotation/freezed_annotation.dart';
+import 'package:server_box/core/utils/ssh_host.dart';
 import 'package:server_box/data/model/app/error.dart';
 import 'package:server_box/data/model/server/custom.dart';
 import 'package:server_box/data/model/server/system.dart';
@@ -165,21 +166,39 @@ extension Spix on Spi {
     if (alterUrl == null) {
       throw SSHErr(type: SSHErrType.connect, message: 'alterUrl is null');
     }
-    final splited = alterUrl!.split('@');
-    if (splited.length != 2) {
+    final at = alterUrl!.lastIndexOf('@');
+    if (at <= 0 || at == alterUrl!.length - 1) {
       throw SSHErr(type: SSHErrType.connect, message: 'alterUrl no @');
     }
-    final usr = splited[0];
-    final idx = splited[1].lastIndexOf(':');
-    if (idx == -1) {
-      throw SSHErr(type: SSHErrType.connect, message: 'alterUrl no :');
+    final usr = alterUrl!.substring(0, at);
+    final hostPort = alterUrl!.substring(at + 1).trim();
+    String ip_;
+    String portText;
+    if (hostPort.startsWith('[')) {
+      final close = hostPort.indexOf(']');
+      if (close <= 1 ||
+          close + 1 >= hostPort.length ||
+          hostPort[close + 1] != ':') {
+        throw SSHErr(type: SSHErrType.connect, message: 'alterUrl no :');
+      }
+      ip_ = hostPort.substring(1, close);
+      portText = hostPort.substring(close + 2);
+    } else {
+      final idx = hostPort.lastIndexOf(':');
+      if (idx <= 0 || idx == hostPort.length - 1) {
+        throw SSHErr(type: SSHErrType.connect, message: 'alterUrl no :');
+      }
+      ip_ = hostPort.substring(0, idx);
+      portText = hostPort.substring(idx + 1);
     }
-    final ip_ = splited[1].substring(0, idx);
-    final port_ = int.tryParse(splited[1].substring(idx + 1));
+    if (!isValidSshHost(ip_)) {
+      throw SSHErr(type: SSHErrType.connect, message: 'alterUrl host error');
+    }
+    final port_ = int.tryParse(portText);
     if (port_ == null || port_ <= 0 || port_ > 65535) {
       throw SSHErr(type: SSHErrType.connect, message: 'alterUrl port error');
     }
-    return (ip_, usr, port_);
+    return (normalizeSshHost(ip_), usr, port_);
   }
 
   /// Just for showing the struct of the class.

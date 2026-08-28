@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.1502 — 2026-08-28
+
+### Android SSH
+
+- Improved IPv4/IPv6 host validation and normalized bracketed IPv6 addresses.
+- Added IPv6 support for alternate SSH destinations and SSH Config imports.
+- Added timeout and clearer errors for jump-server forwarding.
+- Fixed `ProxyJump` aliases so imported jump servers resolve correctly.
+- Added a yellow jump-server indicator beside the server-card disconnect action.
+
 ## v1.0.1501 — 2026-08-02
 
 ### Android SSH

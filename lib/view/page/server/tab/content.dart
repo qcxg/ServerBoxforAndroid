@@ -43,8 +43,25 @@ extension on _ServerPageState {
           ),
           const Spacer(),
           _buildTopRightText(s),
+          if (s.spi.resolvedJumpIds.isNotEmpty)
+            _buildJumpIndicator(),
           _buildTopRightWidget(s),
         ],
+      ),
+    );
+  }
+
+  Widget _buildJumpIndicator() {
+    return Tooltip(
+      message: l10n.jumpServer,
+      child: SizedBox(
+        width: 22,
+        height: _ServerPageState._kCardHeightMin,
+        child: Icon(
+          Icons.alt_route_rounded,
+          size: 16,
+          color: Colors.amber.shade700,
+        ),
       ),
     );
   }

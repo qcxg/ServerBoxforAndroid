@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:server_box/core/utils/ssh_config.dart';
+import 'package:server_box/data/model/server/server_private_info.dart';
 
 void main() {
   group('SSHConfig Tests', () {
@@ -268,7 +269,7 @@ Host singleserver
       expect(servers[0].name, 'singleserver');
     });
 
-    test('parseConfig handles ProxyJump (ignored)', () async {
+    test('parseConfig leaves an unresolved ProxyJump unconfigured', () async {
       await configFile.writeAsString('''
 Host jumpserver
   HostName 192.168.1.100
@@ -283,7 +284,7 @@ Host jumpserver
       expect(server.name, 'jumpserver');
       expect(server.ip, '192.168.1.100');
       expect(server.user, 'admin');
-      // ProxyJump is ignored in current implementation
+      expect(server.jumpId, isNull);
     });
 
     test('parseConfig returns empty list for non-existent file', () async {
@@ -350,6 +351,12 @@ Host internal-server
       expect(dev.user, 'developer');
       expect(dev.port, 22);
       expect(dev.keyId, isNull);
+
+      final bastion = servers.firstWhere((s) => s.name == 'bastion');
+      final internal =
+          servers.firstWhere((s) => s.name == 'internal-server');
+      expect(internal.jumpId, bastion.id);
+      expect(internal.resolvedJumpIds, [bastion.id]);
     });
 
     group('_stripInlineComment', () {

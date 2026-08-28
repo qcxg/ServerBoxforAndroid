@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:server_box/core/app_navigator.dart';
 import 'package:server_box/core/extension/context/locale.dart';
 import 'package:server_box/core/utils/proxy_command_socket.dart';
+import 'package:server_box/core/utils/ssh_host.dart';
 import 'package:server_box/data/model/app/error.dart';
 import 'package:server_box/data/model/server/server_private_info.dart';
 import 'package:server_box/data/res/store.dart';
@@ -76,6 +77,14 @@ Future<SSHClient> genClient(
   Future<bool> Function(HostKeyPromptInfo info)? onHostKeyPrompt,
   Set<String>? visitedServerIds,
 }) async {
+  final targetHost = normalizeSshHost(spi.ip);
+  if (!isValidSshHost(targetHost)) {
+    throw SSHErr(
+      type: SSHErrType.connect,
+      message: 'Invalid SSH host: ${spi.ip}',
+    );
+  }
+
   final chainVisitedServerIds = visitedServerIds ?? <String>{};
   final currentServerId = _hostIdentifier(spi);
   if (!chainVisitedServerIds.add(currentServerId)) {
@@ -140,7 +149,17 @@ Future<SSHClient> genClient(
             visitedServerIds: {...chainVisitedServerIds},
           );
 
-          return await jumpClient.forwardLocal(spi.ip, spi.port);
+          return await jumpClient
+              .forwardLocal(targetHost, spi.port)
+              .timeout(
+                timeout,
+                onTimeout: () => throw SSHErr(
+                  type: SSHErrType.connect,
+                  message:
+                      'SSH jump forwarding to ${formatSshHostPort(targetHost, spi.port)} '
+                      'timed out after ${timeout.inSeconds}s',
+                ),
+              );
         } catch (e, stack) {
           jumpClient?.close();
           if (!_isJumpFailoverError(e)) {
@@ -170,7 +189,7 @@ Future<SSHClient> genClient(
     if (proxyCommand != null && proxyCommand.trim().isNotEmpty) {
       return await ProxyCommandSocket.connect(
         command: proxyCommand,
-        host: spi.ip,
+        host: targetHost,
         port: spi.port,
         user: spi.user,
         timeout: timeout,
@@ -179,7 +198,7 @@ Future<SSHClient> genClient(
 
     // Direct
     try {
-      return await SSHSocket.connect(spi.ip, spi.port, timeout: timeout);
+      return await SSHSocket.connect(targetHost, spi.port, timeout: timeout);
     } catch (e) {
       Loggers.app.warning('genClient', e);
       if (spi.alterUrl == null) rethrow;
@@ -390,7 +409,8 @@ Future<bool> _defaultHostKeyPrompt(HostKeyPromptInfo info) async {
     return false;
   }
 
-  final hostLine = '${info.spi.user}@${info.spi.ip}:${info.spi.port}';
+  final hostLine =
+      '${info.spi.user}@${formatSshHostPort(info.spi.ip, info.spi.port)}';
   final description = info.isMismatch
       ? l10n.sshHostKeyChangedDesc(info.spi.name)
       : l10n.sshHostKeyNewDesc(info.spi.name);
