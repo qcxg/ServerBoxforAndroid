@@ -71,7 +71,7 @@ ServerBox Android 是一款行動伺服器管理 App，可在同一處監控主�
 請從 [GitHub Releases](https://github.com/qcxg/flutter_server_box/releases/latest)
 安裝最新正式簽章 APK。
 
-目前版本：`v1.0.1502`（`arm64-v8a`）。
+目前版本：`v1.0.1503`（`arm64-v8a`）。
 
 | 項目 | 需求 |
 | --- | --- |

@@ -1,5 +1,29 @@
 # Changelog
 
+## v1.0.1503 — 2026-09-29
+
+### Material 3 interface
+
+- Added comfortable outer gutters for multi-column server cards on tablets.
+- Balanced the mobile navigation highlight at the server edge.
+- Reworked the launcher artwork as a Material 3 server line icon with Android
+  dynamic-color and themed-icon support.
+- Replaced the remote text-file loading dialog with an in-place glass blur and
+  expressive loading animation.
+
+### Batch commands
+
+- Added a batch-command action beside the main server-page actions.
+- Commands can target any selected servers without being saved first, while
+  existing saved snippets can still be inserted and reused.
+- Added live per-server output, reconnect progress, elapsed time, exit codes,
+  and clear success or failure states.
+
+### Release
+
+- Android arm64-v8a release package.
+- Package: `com.shiraka.serverbox`.
+
 ## v1.0.1502 — 2026-08-28
 
 ### Android SSH

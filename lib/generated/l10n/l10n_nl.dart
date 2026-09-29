@@ -1084,4 +1084,76 @@ class AppLocalizationsNl extends AppLocalizations {
   @override
   String get codexCustomizationNotice =>
       'Fork-specific customization was implemented with Codex.';
+
+  @override
+  String get batchCommand => 'Batch command';
+
+  @override
+  String get batchCommandDescription =>
+      'Run a one-time command on selected servers. Output is streamed per server, and exit code 0 is shown as success. Saved snippets can be inserted without creating a new snippet.';
+
+  @override
+  String get batchCommandInput => 'Command';
+
+  @override
+  String get batchCommandHint => 'For example: sudo apt update';
+
+  @override
+  String get batchCommandUseSnippet => 'Insert saved snippet';
+
+  @override
+  String get batchCommandChooseServers => 'Target servers';
+
+  @override
+  String get batchCommandSelectAll => 'Select all';
+
+  @override
+  String get batchCommandClearSelection => 'Clear';
+
+  @override
+  String get batchCommandRun => 'Run on selected servers';
+
+  @override
+  String get batchCommandRunning => 'Running';
+
+  @override
+  String get batchCommandResults => 'Server responses';
+
+  @override
+  String get batchCommandPending => 'Pending';
+
+  @override
+  String get batchCommandConnecting => 'Connecting';
+
+  @override
+  String get batchCommandSuccess => 'Succeeded';
+
+  @override
+  String get batchCommandFailed => 'Failed';
+
+  @override
+  String get batchCommandNoOutput => 'Command completed without output.';
+
+  @override
+  String get batchCommandWaitingOutput => 'Waiting for output…';
+
+  @override
+  String get batchCommandInputRequired => 'Enter a command first.';
+
+  @override
+  String get batchCommandServerRequired => 'Select at least one server.';
+
+  @override
+  String get batchCommandConnectionUnavailable =>
+      'SSH connection is unavailable.';
+
+  @override
+  String batchCommandExitCode(int code) {
+    return 'Exit code $code';
+  }
+
+  @override
+  String textFileLoading(String name) {
+    return 'Fetching $name…';
+  }
 }

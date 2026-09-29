@@ -325,5 +325,37 @@
   "snippetNameExists": "A snippet with this name already exists.",
   "unofficialForkNoticeTitle": "Unofficial personal build",
   "unofficialForkNoticeBody": "This version is independently maintained and is not affiliated with or supported by the original ServerBox team.",
-  "codexCustomizationNotice": "Fork-specific customization was implemented with Codex."
+  "codexCustomizationNotice": "Fork-specific customization was implemented with Codex.",
+  "batchCommand": "Batch command",
+  "batchCommandDescription": "Run a one-time command on selected servers. Output is streamed per server, and exit code 0 is shown as success. Saved snippets can be inserted without creating a new snippet.",
+  "batchCommandInput": "Command",
+  "batchCommandHint": "For example: sudo apt update",
+  "batchCommandUseSnippet": "Insert saved snippet",
+  "batchCommandChooseServers": "Target servers",
+  "batchCommandSelectAll": "Select all",
+  "batchCommandClearSelection": "Clear",
+  "batchCommandRun": "Run on selected servers",
+  "batchCommandRunning": "Running",
+  "batchCommandResults": "Server responses",
+  "batchCommandPending": "Pending",
+  "batchCommandConnecting": "Connecting",
+  "batchCommandSuccess": "Succeeded",
+  "batchCommandFailed": "Failed",
+  "batchCommandNoOutput": "Command completed without output.",
+  "batchCommandWaitingOutput": "Waiting for output…",
+  "batchCommandInputRequired": "Enter a command first.",
+  "batchCommandServerRequired": "Select at least one server.",
+  "batchCommandConnectionUnavailable": "SSH connection is unavailable.",
+  "batchCommandExitCode": "Exit code {code}",
+  "@batchCommandExitCode": {
+    "placeholders": {
+      "code": {"type": "int"}
+    }
+  },
+  "textFileLoading": "Fetching {name}…",
+  "@textFileLoading": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  }
 }

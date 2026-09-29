@@ -658,9 +658,11 @@ final class _FloatingHomeNavigation extends StatelessWidget {
           .toList(growable: false);
     }
     final navWidth = itemWidths.fold<double>(8, (sum, width) => sum + width);
-    final indicatorStart = itemWidths
-        .take(indicatorIndex)
-        .fold<double>(4, (sum, width) => sum + width);
+    final indicatorStart = indicatorIndex == 0
+        ? 12.0
+        : itemWidths
+              .take(indicatorIndex)
+              .fold<double>(4, (sum, width) => sum + width);
 
     return SafeArea(
       top: false,

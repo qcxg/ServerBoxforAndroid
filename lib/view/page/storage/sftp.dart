@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:dartssh2/dartssh2.dart';
 import 'package:fl_lib/fl_lib.dart';
@@ -100,6 +101,7 @@ class _SftpPageState extends ConsumerState<SftpPage> with AfterLayoutMixin {
   final Set<String> _selectedNames = {};
   final Set<String> _openingRemotePaths = {};
   bool _selectionMode = false;
+  String? _loadingEditName;
 
   bool get _useSudo => _sudoHelper.enabled && _sudoMode.value;
 
@@ -701,30 +703,79 @@ extension _UI on _SftpPageState {
   }
 
   Widget _buildFileView() {
+    final Widget content;
     if (_isDirectoryLoading) {
-      return const Center(child: ExpressiveLoadingIndicator());
+      content = const Center(child: ExpressiveLoadingIndicator());
+    } else if (_status.files.isEmpty) {
+      content = Center(child: Text(libL10n.empty));
+    } else {
+      content = RefreshIndicator(
+        onRefresh: _listDir,
+        child: FadeIn(
+          key: Key(widget.args.spi.name + _status.path.path),
+          child: ValBuilder(
+            listenable: _sortOption,
+            builder: (sortOption) {
+              final files = _getSortedFiles(sortOption);
+              return ListView.builder(
+                itemCount: files.length,
+                padding: EdgeInsets.fromLTRB(
+                  widget.embedded ? 3 : 7,
+                  3,
+                  widget.embedded ? 3 : 7,
+                  widget.embedded ? 148 : 3,
+                ),
+                itemBuilder: (_, index) => _buildItem(files[index]),
+              );
+            },
+          ),
+        ),
+      );
     }
-    if (_status.files.isEmpty) return Center(child: Text(libL10n.empty));
 
-    return RefreshIndicator(
-      onRefresh: _listDir,
-      child: FadeIn(
-        key: Key(widget.args.spi.name + _status.path.path),
-        child: ValBuilder(
-          listenable: _sortOption,
-          builder: (sortOption) {
-            final files = _getSortedFiles(sortOption);
-            return ListView.builder(
-              itemCount: files.length,
-              padding: EdgeInsets.fromLTRB(
-                widget.embedded ? 3 : 7,
-                3,
-                widget.embedded ? 3 : 7,
-                widget.embedded ? 148 : 3,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        content,
+        if (_loadingEditName case final name?)
+          Positioned.fill(child: _buildEditLoadingOverlay(name)),
+      ],
+    );
+  }
+
+  Widget _buildEditLoadingOverlay(String name) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      label: l10n.textFileLoading(name),
+      liveRegion: true,
+      child: AbsorbPointer(
+        child: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+            child: ColoredBox(
+              color: scheme.surface.withAlpha(112),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ExpressiveLoadingIndicator(
+                      size: 58,
+                      color: scheme.primary,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      l10n.textFileLoading(name),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              itemBuilder: (_, index) => _buildItem(files[index]),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
@@ -1073,164 +1124,158 @@ extension _Actions on _SftpPageState {
     final remotePath = _getRemotePath(name);
     if (!_openingRemotePaths.add(remotePath)) return;
     try {
-    final useSudoForEdit = _useSudo;
+      final useSudoForEdit = _useSudo;
 
-    // #489
-    final editor = Stores.setting.sftpEditor.fetch();
-    if (editor.isNotEmpty) {
-      final sudoPrefix = useSudoForEdit ? 'sudo ' : '';
-      final cmd =
-          '$sudoPrefix$editor ${shellSingleQuote(remotePath)}';
-      final args = SshPageArgs(spi: widget.args.spi, initCmd: cmd);
-      await SSHPage.route.go(context, args);
-      await _listDir();
-      return;
-    }
+      // #489
+      final editor = Stores.setting.sftpEditor.fetch();
+      if (editor.isNotEmpty) {
+        final sudoPrefix = useSudoForEdit ? 'sudo ' : '';
+        final cmd = '$sudoPrefix$editor ${shellSingleQuote(remotePath)}';
+        final args = SshPageArgs(spi: widget.args.spi, initCmd: cmd);
+        await SSHPage.route.go(context, args);
+        await _listDir();
+        return;
+      }
 
-    int? size = name.attr.size;
-    String? sudoPassword;
-    if (useSudoForEdit) {
-      sudoPassword = await _sudoHelper.ensurePassword();
-      if (sudoPassword == null) return;
-      final (ret, err) = await context.showLoadingDialog(
-        fn: () => _sudoHelper.getFileSize(
+      int? size = name.attr.size;
+      String? sudoPassword;
+      if (useSudoForEdit) {
+        sudoPassword = await _sudoHelper.ensurePassword();
+        if (sudoPassword == null) return;
+        _setEditLoading(name.filename);
+        size = await _sudoHelper.getFileSize(
           remotePath,
           password: sudoPassword,
-        ),
-      );
-      if (ret == null || err != null) return;
-      size = ret;
-    } else {
-      if (!await ensureHostKeyAcceptedForSftp(context, widget.args.spi)) {
+        );
+      } else {
+        if (!await ensureHostKeyAcceptedForSftp(context, widget.args.spi)) {
+          return;
+        }
+        _setEditLoading(name.filename);
+        final attrs = await _statRemoteFileWithRetry(remotePath);
+        if (attrs.isDirectory) {
+          unawaited(_listDir(null, true));
+          return;
+        }
+        size = attrs.size;
+      }
+
+      if (size == null || size > Miscs.editorMaxSize) {
+        context.showSnackBar(
+          l10n.fileTooLarge(name.filename, size ?? 0, Miscs.editorMaxSize),
+        );
         return;
       }
-      final (attrs, err) = await context.showLoadingDialog(
-        fn: () => _statRemoteFileWithRetry(remotePath),
-      );
-      if (attrs == null || err != null || attrs.isDirectory) {
-        unawaited(_listDir(null, true));
-        return;
-      }
-      size = attrs.size;
-    }
 
-    if (size == null || size > Miscs.editorMaxSize) {
-      context.showSnackBar(
-        l10n.fileTooLarge(name.filename, size ?? 0, Miscs.editorMaxSize),
-      );
-      return;
-    }
-
-    final localPath = _getLocalPath(remotePath);
-    if (size == 0) {
-      final localFile = File(localPath);
-      await localFile.parent.create(recursive: true);
-      await localFile.writeAsBytes(const <int>[]);
-    } else if (useSudoForEdit) {
-      final (suc, err) = await context.showLoadingDialog(
-        fn: () async {
-          await _sudoHelper.downloadTextFile(
-            remotePath,
-            localPath,
-            password: sudoPassword,
-          );
-          return true;
-        },
-      );
-      if (suc == null || err != null) return;
-    } else {
-      final (suc, err) = await context.showLoadingDialog(
-        fn: () => _downloadEditorCopyWithRetry(
+      final localPath = _getLocalPath(remotePath);
+      if (size == 0) {
+        final localFile = File(localPath);
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(const <int>[]);
+      } else if (useSudoForEdit) {
+        await _sudoHelper.downloadTextFile(
+          remotePath,
+          localPath,
+          password: sudoPassword,
+        );
+      } else {
+        await _downloadEditorCopyWithRetry(
           remotePath: remotePath,
           localPath: localPath,
-          expectedSize: size!,
-        ),
-      );
-      if (suc != true || err != null) return;
-    }
+          expectedSize: size,
+        );
+      }
 
-    final remoteDir = _status.path.path;
-    var preserveTemporaryCopy = false;
-    var backgroundUploadPending = false;
-    try {
-      await EditorPage.route.go(
-        context,
-        args: EditorPageArgs(
-          path: localPath,
-          onSave: (_) async {
-            if (useSudoForEdit) {
-              final pwd = sudoPassword;
-              if (pwd == null) {
-                preserveTemporaryCopy = true;
+      final remoteDir = _status.path.path;
+      var preserveTemporaryCopy = false;
+      var backgroundUploadPending = false;
+      _setEditLoading(null);
+      try {
+        await EditorPage.route.go(
+          context,
+          args: EditorPageArgs(
+            path: localPath,
+            onSave: (_) async {
+              if (useSudoForEdit) {
+                final pwd = sudoPassword;
+                if (pwd == null) {
+                  preserveTemporaryCopy = true;
+                  return;
+                }
+                backgroundUploadPending = true;
+                unawaited(
+                  _finishBackgroundSudoEditUpload(
+                    localPath: localPath,
+                    remotePath: remotePath,
+                    remoteDir: remoteDir,
+                    password: pwd,
+                  ),
+                );
                 return;
               }
+
+              final uploadCompleter = Completer<bool>();
+              ref
+                  .read(sftpProvider.notifier)
+                  .add(
+                    SftpReq(
+                      widget.args.spi,
+                      remotePath,
+                      localPath,
+                      SftpReqType.upload,
+                    ),
+                    completer: uploadCompleter,
+                  );
               backgroundUploadPending = true;
+              if (context.mounted) context.showSnackBar(l10n.added2List);
               unawaited(
-                _finishBackgroundSudoEditUpload(
+                _finishBackgroundQueuedEditUpload(
+                  completion: uploadCompleter.future,
                   localPath: localPath,
                   remotePath: remotePath,
                   remoteDir: remoteDir,
-                  password: pwd,
                 ),
               );
-              return;
-            }
-
-            final uploadCompleter = Completer<bool>();
-            ref
-                .read(sftpProvider.notifier)
-                .add(
-                  SftpReq(
-                    widget.args.spi,
-                    remotePath,
-                    localPath,
-                    SftpReqType.upload,
-                  ),
-                  completer: uploadCompleter,
-                );
-            backgroundUploadPending = true;
-            if (context.mounted) context.showSnackBar(l10n.added2List);
-            unawaited(
-              _finishBackgroundQueuedEditUpload(
-                completion: uploadCompleter.future,
-                localPath: localPath,
-                remotePath: remotePath,
-                remoteDir: remoteDir,
-              ),
-            );
-          },
-          closeAfterSave: true,
-          softWrap: Stores.setting.editorSoftWrap.fetch(),
-          enableHighlight: Stores.setting.editorHighlight.fetch(),
-          softWrapLabel: l10n.softWrap,
-          highlightLabel: l10n.highlight,
-          externalFileOpener: MethodChans.openFileExternally,
-          lightTheme: HighlightTheme.fromThemeMapKey(
-            Stores.setting.editorTheme.fetch(),
+            },
+            closeAfterSave: true,
+            softWrap: Stores.setting.editorSoftWrap.fetch(),
+            enableHighlight: Stores.setting.editorHighlight.fetch(),
+            softWrapLabel: l10n.softWrap,
+            highlightLabel: l10n.highlight,
+            externalFileOpener: MethodChans.openFileExternally,
+            lightTheme: HighlightTheme.fromThemeMapKey(
+              Stores.setting.editorTheme.fetch(),
+            ),
+            darkTheme: HighlightTheme.fromThemeMapKey(
+              Stores.setting.editorDarkTheme.fetch(),
+            ),
+            fontFamily: () {
+              final font = Stores.setting.editorFontFamily.fetch();
+              return font.isEmpty ? null : font;
+            }(),
+            fontSize: Stores.setting.editorFontSize.fetch(),
           ),
-          darkTheme: HighlightTheme.fromThemeMapKey(
-            Stores.setting.editorDarkTheme.fetch(),
-          ),
-          fontFamily: () {
-            final font = Stores.setting.editorFontFamily.fetch();
-            return font.isEmpty ? null : font;
-          }(),
-          fontSize: Stores.setting.editorFontSize.fetch(),
-        ),
-      );
-    } catch (_) {
-      preserveTemporaryCopy = true;
-      rethrow;
-    } finally {
-      if (!preserveTemporaryCopy && !backgroundUploadPending) {
-        await _deleteTemporaryEditFile(localPath);
+        );
+      } catch (_) {
+        preserveTemporaryCopy = true;
+        rethrow;
+      } finally {
+        if (!preserveTemporaryCopy && !backgroundUploadPending) {
+          await _deleteTemporaryEditFile(localPath);
+        }
       }
-    }
     } catch (error, stackTrace) {
       if (mounted) context.showErrDialog(error, stackTrace);
     } finally {
       _openingRemotePaths.remove(remotePath);
+      _setEditLoading(null);
     }
+  }
+
+  void _setEditLoading(String? name) {
+    if (!mounted || _loadingEditName == name) return;
+    // ignore: invalid_use_of_protected_member
+    setState(() => _loadingEditName = name);
   }
 
   void _download(SftpName name, {bool popMenu = true}) {

@@ -101,6 +101,15 @@ final class _TopBar extends ConsumerWidget implements PreferredSizeWidget {
                             ),
                           ),
                           _TopBarActionButton(
+                            tooltip: context.l10n.batchCommand,
+                            foregroundColor: scheme.onTertiaryContainer,
+                            backgroundColor: scheme.tertiaryContainer,
+                            onPressed: () => BatchCommandPage.route.go(context),
+                            icon: const Icon(Icons.playlist_play_rounded),
+                            compact: !expandedStatus,
+                          ),
+                          const SizedBox(width: 4),
+                          _TopBarActionButton(
                             tooltip: libL10n.add,
                             foregroundColor: scheme.onSurfaceVariant,
                             backgroundColor: scheme.surfaceContainerHighest,
@@ -173,6 +182,14 @@ final class _TopBar extends ConsumerWidget implements PreferredSizeWidget {
             reversed: true,
           ).expanded(),
           const SizedBox(width: 8),
+          _TopBarActionButton(
+            tooltip: context.l10n.batchCommand,
+            foregroundColor: scheme.onTertiaryContainer,
+            backgroundColor: scheme.tertiaryContainer,
+            onPressed: () => BatchCommandPage.route.go(context),
+            icon: const Icon(Icons.playlist_play_rounded),
+          ),
+          const SizedBox(width: 6),
           _TopBarActionButton(
             tooltip: libL10n.add,
             foregroundColor: scheme.onSurfaceVariant,

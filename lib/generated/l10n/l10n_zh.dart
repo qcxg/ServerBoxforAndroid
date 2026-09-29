@@ -1013,6 +1013,77 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get codexCustomizationNotice => '本分支的定制化修改由 Codex 完成。';
+
+  @override
+  String get batchCommand => '批量命令';
+
+  @override
+  String get batchCommandDescription =>
+      '向选中的服务器发送一次性命令。每台服务器会实时显示输出，并以退出码 0 标记成功；也可以直接插入已保存的程序片段，无需保存临时命令。';
+
+  @override
+  String get batchCommandInput => '命令';
+
+  @override
+  String get batchCommandHint => '例如：sudo apt update';
+
+  @override
+  String get batchCommandUseSnippet => '插入已保存片段';
+
+  @override
+  String get batchCommandChooseServers => '目标服务器';
+
+  @override
+  String get batchCommandSelectAll => '全选';
+
+  @override
+  String get batchCommandClearSelection => '清空';
+
+  @override
+  String get batchCommandRun => '在所选服务器执行';
+
+  @override
+  String get batchCommandRunning => '执行中';
+
+  @override
+  String get batchCommandResults => '服务器回复';
+
+  @override
+  String get batchCommandPending => '等待中';
+
+  @override
+  String get batchCommandConnecting => '正在连接';
+
+  @override
+  String get batchCommandSuccess => '执行成功';
+
+  @override
+  String get batchCommandFailed => '执行失败';
+
+  @override
+  String get batchCommandNoOutput => '命令已完成，没有输出。';
+
+  @override
+  String get batchCommandWaitingOutput => '正在等待输出…';
+
+  @override
+  String get batchCommandInputRequired => '请先输入命令。';
+
+  @override
+  String get batchCommandServerRequired => '请至少选择一台服务器。';
+
+  @override
+  String get batchCommandConnectionUnavailable => 'SSH 连接不可用。';
+
+  @override
+  String batchCommandExitCode(int code) {
+    return '退出码 $code';
+  }
+
+  @override
+  String textFileLoading(String name) {
+    return '正在拉取 $name…';
+  }
 }
 
 /// The translations for Chinese, as used in Taiwan (`zh_TW`).
@@ -1927,4 +1998,75 @@ class AppLocalizationsZhTw extends AppLocalizationsZh {
 
   @override
   String get codexCustomizationNotice => '本分支的客製化修改由 Codex 完成。';
+
+  @override
+  String get batchCommand => '批量指令';
+
+  @override
+  String get batchCommandDescription =>
+      '向選定的伺服器傳送一次性指令。每台伺服器會即時顯示輸出，並以結束碼 0 標示成功；也可以直接插入已儲存的程式片段，不必儲存臨時指令。';
+
+  @override
+  String get batchCommandInput => '指令';
+
+  @override
+  String get batchCommandHint => '例如：sudo apt update';
+
+  @override
+  String get batchCommandUseSnippet => '插入已儲存片段';
+
+  @override
+  String get batchCommandChooseServers => '目標伺服器';
+
+  @override
+  String get batchCommandSelectAll => '全選';
+
+  @override
+  String get batchCommandClearSelection => '清除';
+
+  @override
+  String get batchCommandRun => '在所選伺服器執行';
+
+  @override
+  String get batchCommandRunning => '執行中';
+
+  @override
+  String get batchCommandResults => '伺服器回覆';
+
+  @override
+  String get batchCommandPending => '等待中';
+
+  @override
+  String get batchCommandConnecting => '正在連線';
+
+  @override
+  String get batchCommandSuccess => '執行成功';
+
+  @override
+  String get batchCommandFailed => '執行失敗';
+
+  @override
+  String get batchCommandNoOutput => '指令已完成，沒有輸出。';
+
+  @override
+  String get batchCommandWaitingOutput => '正在等待輸出…';
+
+  @override
+  String get batchCommandInputRequired => '請先輸入指令。';
+
+  @override
+  String get batchCommandServerRequired => '請至少選擇一台伺服器。';
+
+  @override
+  String get batchCommandConnectionUnavailable => 'SSH 連線無法使用。';
+
+  @override
+  String batchCommandExitCode(int code) {
+    return '結束碼 $code';
+  }
+
+  @override
+  String textFileLoading(String name) {
+    return '正在拉取 $name…';
+  }
 }

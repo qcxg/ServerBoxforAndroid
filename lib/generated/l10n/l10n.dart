@@ -1997,6 +1997,138 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Fork-specific customization was implemented with Codex.'**
   String get codexCustomizationNotice;
+
+  /// No description provided for @batchCommand.
+  ///
+  /// In en, this message translates to:
+  /// **'Batch command'**
+  String get batchCommand;
+
+  /// No description provided for @batchCommandDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Run a one-time command on selected servers. Output is streamed per server, and exit code 0 is shown as success. Saved snippets can be inserted without creating a new snippet.'**
+  String get batchCommandDescription;
+
+  /// No description provided for @batchCommandInput.
+  ///
+  /// In en, this message translates to:
+  /// **'Command'**
+  String get batchCommandInput;
+
+  /// No description provided for @batchCommandHint.
+  ///
+  /// In en, this message translates to:
+  /// **'For example: sudo apt update'**
+  String get batchCommandHint;
+
+  /// No description provided for @batchCommandUseSnippet.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert saved snippet'**
+  String get batchCommandUseSnippet;
+
+  /// No description provided for @batchCommandChooseServers.
+  ///
+  /// In en, this message translates to:
+  /// **'Target servers'**
+  String get batchCommandChooseServers;
+
+  /// No description provided for @batchCommandSelectAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Select all'**
+  String get batchCommandSelectAll;
+
+  /// No description provided for @batchCommandClearSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear'**
+  String get batchCommandClearSelection;
+
+  /// No description provided for @batchCommandRun.
+  ///
+  /// In en, this message translates to:
+  /// **'Run on selected servers'**
+  String get batchCommandRun;
+
+  /// No description provided for @batchCommandRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'Running'**
+  String get batchCommandRunning;
+
+  /// No description provided for @batchCommandResults.
+  ///
+  /// In en, this message translates to:
+  /// **'Server responses'**
+  String get batchCommandResults;
+
+  /// No description provided for @batchCommandPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Pending'**
+  String get batchCommandPending;
+
+  /// No description provided for @batchCommandConnecting.
+  ///
+  /// In en, this message translates to:
+  /// **'Connecting'**
+  String get batchCommandConnecting;
+
+  /// No description provided for @batchCommandSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Succeeded'**
+  String get batchCommandSuccess;
+
+  /// No description provided for @batchCommandFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get batchCommandFailed;
+
+  /// No description provided for @batchCommandNoOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Command completed without output.'**
+  String get batchCommandNoOutput;
+
+  /// No description provided for @batchCommandWaitingOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for output…'**
+  String get batchCommandWaitingOutput;
+
+  /// No description provided for @batchCommandInputRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a command first.'**
+  String get batchCommandInputRequired;
+
+  /// No description provided for @batchCommandServerRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least one server.'**
+  String get batchCommandServerRequired;
+
+  /// No description provided for @batchCommandConnectionUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'SSH connection is unavailable.'**
+  String get batchCommandConnectionUnavailable;
+
+  /// No description provided for @batchCommandExitCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit code {code}'**
+  String batchCommandExitCode(int code);
+
+  /// No description provided for @textFileLoading.
+  ///
+  /// In en, this message translates to:
+  /// **'Fetching {name}…'**
+  String textFileLoading(String name);
 }
 
 class _AppLocalizationsDelegate

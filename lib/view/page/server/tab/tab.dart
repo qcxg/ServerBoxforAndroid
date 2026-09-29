@@ -25,6 +25,7 @@ import 'package:server_box/data/provider/sftp.dart';
 import 'package:server_box/data/res/build_data.dart';
 import 'package:server_box/data/res/store.dart';
 import 'package:server_box/data/ssh/session_manager.dart';
+import 'package:server_box/view/page/server/batch_command.dart';
 import 'package:server_box/view/page/server/connection_stats.dart';
 import 'package:server_box/view/page/server/detail/view.dart';
 import 'package:server_box/view/page/server/edit/edit.dart';
@@ -172,10 +173,6 @@ class _ServerPageState extends ConsumerState<ServerPage>
                 _tags.value.isNotEmpty,
               )
             : 0.0;
-        final padding = columnsCount > 1
-            ? EdgeInsets.fromLTRB(0, firstCardTopInset, 5, 7)
-            : EdgeInsets.fromLTRB(7, firstCardTopInset, 7, 7);
-
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: List.generate(columnsCount, (colIndex) {
@@ -185,6 +182,14 @@ class _ServerPageState extends ConsumerState<ServerPage>
               serversInThisColumn.add(filtered[i]);
             }
             final lens = serversInThisColumn.length;
+            final padding = columnsCount > 1
+                ? EdgeInsets.fromLTRB(
+                    colIndex == 0 ? 12 : 6,
+                    firstCardTopInset,
+                    colIndex == columnsCount - 1 ? 12 : 6,
+                    7,
+                  )
+                : EdgeInsets.fromLTRB(7, firstCardTopInset, 7, 7);
 
             return Expanded(
               child: ListView.builder(
