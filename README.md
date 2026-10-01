@@ -83,7 +83,7 @@ stronger background-session behavior, and a two-pane file workspace.
 Install the latest signed APK from
 [GitHub Releases](https://github.com/qcxg/flutter_server_box/releases/latest).
 
-Current release: `v1.0.1503` (`arm64-v8a`).
+Current release: `v1.0.1504` (`arm64-v8a`).
 
 | Requirement | Value |
 | --- | --- |

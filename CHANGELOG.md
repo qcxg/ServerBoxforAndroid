@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.1504 — 2026-10-01
+
+- Redrew the Android launcher icon on the 108dp adaptive-icon canvas using the supplied 24dp design-grid specification.
+- Reduced the painted bounds to the specified 42–46dp range, restored centered negative space, and standardized the 1.75/1.65/1.50dp rounded stroke hierarchy.
+- Applied Android system palette roles to the launcher artwork: `system_accent1_100` for the background and `system_neutral1_700` / `system_neutral1_500` for the foreground hierarchy.
+
 ## v1.0.1503 — 2026-09-29
 
 ### Material 3 interface
